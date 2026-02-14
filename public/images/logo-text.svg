@@ -1,0 +1,38 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="280" viewBox="0 0 1200 280" role="img" aria-label="NatGasPulse logo">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#112c5d"/>
+      <stop offset="100%" stop-color="#1f6cb1"/>
+    </linearGradient>
+    <linearGradient id="flameOuter" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffc23f"/>
+      <stop offset="100%" stop-color="#f26628"/>
+    </linearGradient>
+    <linearGradient id="flameInner" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#42d7ff"/>
+      <stop offset="100%" stop-color="#1580c5"/>
+    </linearGradient>
+    <linearGradient id="wordMark" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#5eead4"/>
+      <stop offset="100%" stop-color="#67e8f9"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(24,20)">
+    <circle cx="120" cy="120" r="112" fill="url(#bgGrad)"/>
+    <circle cx="120" cy="120" r="106" fill="none" stroke="#44d3f5" stroke-width="6"/>
+
+    <path d="M10 122 L60 122 L78 78 L96 146 L116 108 L148 108 L166 78 L184 146 L202 122 L232 122"
+          fill="none" stroke="#ff8042" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <path d="M120 52 C152 70, 154 115, 120 142 C86 115, 88 70, 120 52 Z" fill="url(#flameOuter)"/>
+    <path d="M120 77 C138 90, 137 114, 120 126 C103 114, 102 90, 120 77 Z" fill="url(#flameInner)"/>
+
+    <circle cx="120" cy="160" r="28" fill="none" stroke="#44d3f5" stroke-width="4"/>
+    <ellipse cx="120" cy="160" rx="10" ry="28" fill="none" stroke="#44d3f5" stroke-width="3"/>
+    <ellipse cx="120" cy="160" rx="28" ry="10" fill="none" stroke="#44d3f5" stroke-width="3"/>
+  </g>
+
+  <text x="300" y="128" font-family="Segoe UI, Arial, sans-serif" font-size="82" font-weight="800" fill="url(#wordMark)">NATGASPULSE</text>
+  <text x="304" y="183" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="600" fill="#dbeafe" letter-spacing="2.2">REAL-TIME NATURAL GAS MARKET INTELLIGENCE</text>
+</svg>
