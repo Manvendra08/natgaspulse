@@ -20,7 +20,7 @@ interface StorageSignalsProps {
 
 function getConfidenceBadgeClasses(confidence: ConfidenceLevel) {
     if (confidence === 'High') {
-        return 'text-emerald-700 dark:text-emerald-300 border-emerald-500/40 bg-emerald-500/10';
+        return 'text-green-700 dark:text-green-300 border-green-500/40 bg-green-500/10';
     }
     if (confidence === 'Medium') {
         return 'text-amber-700 dark:text-amber-300 border-amber-500/40 bg-amber-500/10';
@@ -106,7 +106,7 @@ export default function StorageSignals({
 
     const primarySignals = isBullish ? bullishSignals : isBearish ? bearishSignals : [];
     const primaryTitle = isBullish ? 'Bullish Signals' : isBearish ? 'Bearish Signals' : 'Neutral Signals';
-    const primaryColor = isBullish ? 'text-emerald-600 dark:text-emerald-400' : isBearish ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400';
+    const primaryColor = isBullish ? 'text-green-600 dark:text-green-400' : isBearish ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400';
     const primaryIcon = isBullish ? <TrendingUp className="w-4 h-4" /> : isBearish ? <TrendingDown className="w-4 h-4" /> : <ArrowRightLeft className="w-4 h-4" />;
 
     return (
@@ -153,7 +153,7 @@ export default function StorageSignals({
                 </div>
 
                 <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4 bg-zinc-50/60 dark:bg-zinc-900/30">
-                    <div className="text-sm font-black uppercase tracking-wider mb-3 flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+                    <div className="text-sm font-black uppercase tracking-wider mb-3 flex items-center gap-1.5 text-primary">
                         <ArrowRightLeft className="w-4 h-4" />
                         Trade Ideas
                     </div>
@@ -172,4 +172,6 @@ export default function StorageSignals({
         </div>
     );
 }
+
+
 

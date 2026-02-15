@@ -120,7 +120,7 @@ export default function TechnicalChartWidget({ data = [], isLoading = false }: T
 
         if (showRSI) {
             const rsiSeries = chart.addSeries(LineSeries, {
-                color: '#a855f7',
+                color: '#8B5CF6',
                 lineWidth: 2,
                 priceScaleId: 'rsi',
             });
@@ -167,8 +167,8 @@ export default function TechnicalChartWidget({ data = [], isLoading = false }: T
             {/* Header */}
             <div className="p-4 border-b border-zinc-100 dark:border-zinc-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-zinc-50/40 dark:bg-zinc-900/40">
                 <div className="flex items-center gap-3">
-                    <div className="p-2 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
-                        <BarChart3 className="w-5 h-5 text-emerald-500" />
+                    <div className="p-2 bg-green-500/10 rounded-lg border border-green-500/30">
+                        <BarChart3 className="w-5 h-5 text-green-500" />
                     </div>
                     <div>
                         <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 italic tracking-tight uppercase">Technical Terminal</h2>
@@ -177,11 +177,11 @@ export default function TechnicalChartWidget({ data = [], isLoading = false }: T
                             {processedData && processedData.length > 0 && (
                                 <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 ml-1 mt-0.5">
                                     <div className={`w-1 h-1 rounded-full ${(new Date().getTime() - new Date(processedData[processedData.length - 1].time).getTime()) < 172800000
-                                        ? 'bg-emerald-500 animate-pulse'
+                                        ? 'bg-green-500 animate-pulse'
                                         : 'bg-amber-500'
                                         }`}></div>
                                     <span className={`text-[8px] font-black uppercase ${(new Date().getTime() - new Date(processedData[processedData.length - 1].time).getTime()) < 172800000
-                                        ? 'text-emerald-500'
+                                        ? 'text-green-500'
                                         : 'text-amber-500'
                                         }`}>
                                         {(new Date().getTime() - new Date(processedData[processedData.length - 1].time).getTime()) < 172800000 ? 'Synced' : 'Reporting Lag'}
@@ -198,7 +198,7 @@ export default function TechnicalChartWidget({ data = [], isLoading = false }: T
                             key={tf.label}
                             onClick={() => setDays(tf.value)}
                             className={`flex-1 sm:flex-none px-3 py-1 text-[10px] font-black rounded transition-all uppercase tracking-tighter ${days === tf.value
-                                ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-sm'
+                                ? 'bg-primary text-white shadow-sm'
                                 : 'text-zinc-500 dark:text-zinc-600 hover:text-zinc-900 dark:hover:text-zinc-400'
                                 }`}
                         >
@@ -213,7 +213,7 @@ export default function TechnicalChartWidget({ data = [], isLoading = false }: T
                 <button
                     onClick={() => setShowRSI(!showRSI)}
                     className={`px-3 py-1 text-[9px] font-black uppercase rounded border transition-all whitespace-nowrap ${showRSI
-                        ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30'
+                        ? 'bg-primary/10 text-primary border-primary/30'
                         : 'text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-700'
                         }`}
                 >
@@ -222,7 +222,7 @@ export default function TechnicalChartWidget({ data = [], isLoading = false }: T
                 <button
                     onClick={() => setShowBB(!showBB)}
                     className={`px-3 py-1 text-[9px] font-black uppercase rounded border transition-all whitespace-nowrap ${showBB
-                        ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
+                        ? 'bg-primary/10 text-primary border-primary/30'
                         : 'text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-700'
                         }`}
                 >
@@ -245,7 +245,7 @@ export default function TechnicalChartWidget({ data = [], isLoading = false }: T
             <div className="px-4 py-3 bg-zinc-50/80 dark:bg-zinc-950/80 border-t border-zinc-100 dark:border-zinc-800/50 flex items-center justify-between">
                 <div className="flex items-center gap-6 text-[9px] text-zinc-500 dark:text-zinc-600 uppercase font-black tracking-tighter">
                     <div className="flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
                         <span>High-Density Core</span>
                     </div>
                 </div>
@@ -258,3 +258,4 @@ export default function TechnicalChartWidget({ data = [], isLoading = false }: T
         </div>
     );
 }
+

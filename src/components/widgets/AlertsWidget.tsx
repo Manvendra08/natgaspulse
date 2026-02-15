@@ -175,7 +175,7 @@ export default function AlertsWidget({ storageData, priceData, weatherData }: Al
                                 key={alert.id}
                                 className={`p-3 rounded-lg border flex gap-3 items-start transition-all hover:scale-[1.01] ${alert.type === 'critical' ? 'bg-red-500/5 dark:bg-red-500/10 border-red-500/20 dark:border-red-500/30' :
                                     alert.type === 'warning' ? 'bg-amber-500/5 dark:bg-amber-500/10 border-amber-500/20 dark:border-amber-500/30' :
-                                        'bg-blue-500/5 dark:bg-blue-500/10 border-blue-500/20 dark:border-blue-500/30'
+                                        'bg-primary/5 dark:bg-primary/10 border-primary/20 dark:border-primary/30'
                                     }`}
                             >
                                 <div className={`mt-0.5 ${alert.type === 'critical' ? 'text-red-500' :
@@ -188,7 +188,7 @@ export default function AlertsWidget({ storageData, priceData, weatherData }: Al
                                     <div className="flex items-center gap-2">
                                         <h4 className={`text-[9px] font-black uppercase tracking-wider ${alert.type === 'critical' ? 'text-red-600 dark:text-red-400' :
                                             alert.type === 'warning' ? 'text-amber-600 dark:text-amber-400' :
-                                                'text-blue-600 dark:text-blue-200'
+                                                'text-primary'
                                             }`}>
                                             {alert.category}
                                         </h4>
@@ -213,7 +213,7 @@ export default function AlertsWidget({ storageData, priceData, weatherData }: Al
                     </div>
                     <h2 className="text-[11px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">X Social Stream</h2>
                     <div className="ml-auto flex items-center gap-1.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
                         <span className="text-[9px] text-zinc-400 dark:text-zinc-600 font-black uppercase">Flow</span>
                     </div>
                 </div>
@@ -249,4 +249,6 @@ export default function AlertsWidget({ storageData, priceData, weatherData }: Al
         </div>
     );
 }
+
+
 

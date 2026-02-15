@@ -13,15 +13,14 @@ export default function Footer({ className }: FooterProps) {
                     <Logo variant="icon" iconSize={34} />
                     <div>
                         <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">NatGasPulse</div>
-                        <div className="text-xs text-zinc-500 dark:text-zinc-400">Real-time natural gas market intelligence</div>
+                        <div className="text-xs text-zinc-500 dark:text-zinc-400">Data Sources: EIA, NOAA, MCX</div>
                     </div>
                 </div>
 
                 <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {new Date().getFullYear()} NatGasPulse. Market data for research and monitoring.
+                    © 2026 NatGasPulse. Market data for informational purposes only.
                 </div>
             </div>
         </footer>
     );
 }
-

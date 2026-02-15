@@ -102,7 +102,7 @@ export default function MarketOverviewWidget({ data, isLoading }: MarketOverview
                 {lastUpdated && (
                     <div className="hidden sm:flex flex-col items-end">
                         <div className="flex items-center gap-1.5 text-[10px] font-bold text-zinc-500 bg-zinc-50 dark:bg-zinc-900/50 px-2 py-1 rounded-md border border-zinc-200 dark:border-zinc-800">
-                            <Clock className="w-3 h-3 text-emerald-500" />
+                            <Clock className="w-3 h-3 text-green-500" />
                             <span>{lastUpdated.toLocaleTimeString()}</span>
                         </div>
                     </div>
@@ -116,7 +116,7 @@ export default function MarketOverviewWidget({ data, isLoading }: MarketOverview
                         <span className="text-xs font-bold text-amber-600 dark:text-amber-500/80 uppercase flex items-center gap-1">
                             <DollarSign className="w-3 h-3" /> NYMEX Active
                         </span>
-                        <div className={`flex items-center gap-1 text-[11px] font-black px-1.5 py-0.5 rounded ${isPositive ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
+                        <div className={`flex items-center gap-1 text-[11px] font-black px-1.5 py-0.5 rounded ${isPositive ? 'bg-green-500/10 text-green-600 dark:text-green-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
                             {isPositive ? '+' : ''}{active.changePercent.toFixed(2)}%
                         </div>
                     </div>
@@ -128,7 +128,7 @@ export default function MarketOverviewWidget({ data, isLoading }: MarketOverview
                             </span>
                             <span className="text-[9px] text-zinc-400 dark:text-zinc-500 font-black uppercase tracking-widest mt-0.5">Active Contract | Mar 2026</span>
                         </div>
-                        <span className={`text-[10px] font-black mt-2 flex items-center gap-1 ${isPositive ? 'text-emerald-600 dark:text-emerald-500/80' : 'text-red-600 dark:text-red-500/80'}`}>
+                        <span className={`text-[10px] font-black mt-2 flex items-center gap-1 ${isPositive ? 'text-green-600 dark:text-green-500/80' : 'text-red-600 dark:text-red-500/80'}`}>
                             {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                             {active.change.toFixed(3)} move from prev close
                         </span>
@@ -140,7 +140,7 @@ export default function MarketOverviewWidget({ data, isLoading }: MarketOverview
                                 <span className="text-[9px] text-zinc-400 dark:text-zinc-500 font-black uppercase tracking-tighter">Next Cycle (Apr)</span>
                                 <span className="text-sm font-black text-zinc-700 dark:text-zinc-300 tracking-tight">${next.current.toFixed(3)}</span>
                             </div>
-                            <div className={`text-[10px] font-black px-2 py-0.5 rounded-full ${next.change >= 0 ? 'bg-emerald-500/5 text-emerald-600 dark:text-emerald-500' : 'bg-red-500/5 text-red-600 dark:text-red-500'}`}>
+                            <div className={`text-[10px] font-black px-2 py-0.5 rounded-full ${next.change >= 0 ? 'bg-green-500/5 text-green-600 dark:text-green-500' : 'bg-red-500/5 text-red-600 dark:text-red-500'}`}>
                                 {next.change >= 0 ? '+' : ''}{next.change.toFixed(3)} ({next.changePercent}%)
                             </div>
                         </div>
@@ -165,7 +165,7 @@ export default function MarketOverviewWidget({ data, isLoading }: MarketOverview
                             </span>
                             <span className="text-[9px] text-zinc-400 dark:text-zinc-500 font-black uppercase tracking-widest mt-0.5">Settlement (Theoretical)</span>
                         </div>
-                        <span className={`text-[10px] font-black mt-2 flex items-center gap-1 ${mcxActiveChange >= 0 ? 'text-emerald-600 dark:text-emerald-500/80' : 'text-red-600 dark:text-red-500/80'}`}>
+                        <span className={`text-[10px] font-black mt-2 flex items-center gap-1 ${mcxActiveChange >= 0 ? 'text-green-600 dark:text-green-500/80' : 'text-red-600 dark:text-red-500/80'}`}>
                             {mcxActiveChange >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                             INR {Math.abs(mcxActiveChange).toFixed(1)} volatility offset
                         </span>
@@ -177,7 +177,7 @@ export default function MarketOverviewWidget({ data, isLoading }: MarketOverview
                                 <span className="text-[9px] text-zinc-400 dark:text-zinc-500 font-black uppercase tracking-tighter">Apr Parity Estimate</span>
                                 <span className="text-sm font-black text-zinc-700 dark:text-zinc-300 tracking-tight">INR {mcxNext.toFixed(1)}</span>
                             </div>
-                            <div className={`text-[10px] font-black px-2 py-0.5 rounded-full ${mcxNextChange >= 0 ? 'bg-emerald-500/5 text-emerald-600 dark:text-emerald-500' : 'bg-red-500/5 text-red-600 dark:text-red-500'}`}>
+                            <div className={`text-[10px] font-black px-2 py-0.5 rounded-full ${mcxNextChange >= 0 ? 'bg-green-500/5 text-green-600 dark:text-green-500' : 'bg-red-500/5 text-red-600 dark:text-red-500'}`}>
                                 {mcxNextChange >= 0 ? '+' : '-'} INR {Math.abs(mcxNextChange).toFixed(1)}
                             </div>
                         </div>
@@ -187,7 +187,7 @@ export default function MarketOverviewWidget({ data, isLoading }: MarketOverview
 
             <div className="pt-4 border-t border-zinc-800/50 flex flex-wrap items-center gap-4 text-[10px] text-zinc-500 font-medium uppercase tracking-wider">
                 <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
                     Source: Live Market Feed
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -206,3 +206,4 @@ export default function MarketOverviewWidget({ data, isLoading }: MarketOverview
         </div>
     );
 }
+

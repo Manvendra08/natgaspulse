@@ -108,7 +108,7 @@ export default function StorageTrendChart({ data, priceData = [], isLoading = fa
     }
 
     return (
-        <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 md:p-6 shadow-xl dark:shadow-2xl hover:border-emerald-500/20 transition-all duration-300">
+        <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 md:p-6 shadow-xl dark:shadow-2xl hover:border-green-500/20 transition-all duration-300">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8">
                 <div>
                     <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-tight italic">
@@ -127,7 +127,7 @@ export default function StorageTrendChart({ data, priceData = [], isLoading = fa
                                     key={year}
                                     onClick={() => setSelectedYear(year)}
                                     className={`px-2 py-1 text-[10px] font-bold rounded uppercase transition-all ${selectedYear === year
-                                        ? 'bg-white dark:bg-zinc-800 text-emerald-600 dark:text-emerald-400 shadow-sm border border-zinc-200 dark:border-zinc-700'
+                                        ? 'bg-primary text-white shadow-sm border border-primary/40'
                                         : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'
                                         }`}
                                 >
@@ -160,8 +160,8 @@ export default function StorageTrendChart({ data, priceData = [], isLoading = fa
                     <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                         <defs>
                             <linearGradient id="storageGradient" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                                <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                                <stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.3} />
+                                <stop offset="95%" stopColor="#8B5CF6" stopOpacity={0} />
                             </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#27272a" : "#f4f4f5"} vertical={false} />
@@ -175,8 +175,8 @@ export default function StorageTrendChart({ data, priceData = [], isLoading = fa
                         />
                         <YAxis
                             yAxisId="left"
-                            stroke="#10b981"
-                            tick={{ fill: '#10b981', fontSize: 10, fontWeight: 700 }}
+                            stroke="#8B5CF6"
+                            tick={{ fill: '#8B5CF6', fontSize: 10, fontWeight: 700 }}
                             tickFormatter={(val) => `${(val / 1000).toFixed(1)}k`}
                             domain={['auto', 'auto']}
                             axisLine={false}
@@ -221,7 +221,7 @@ export default function StorageTrendChart({ data, priceData = [], isLoading = fa
                             type="monotone"
                             dataKey="storage"
                             name="Storage (BCF)"
-                            stroke="#10b981"
+                            stroke="#8B5CF6"
                             fill="url(#storageGradient)"
                             strokeWidth={3}
                         />
@@ -258,3 +258,4 @@ export default function StorageTrendChart({ data, priceData = [], isLoading = fa
         </div>
     );
 }
+

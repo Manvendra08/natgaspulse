@@ -157,11 +157,13 @@ export default function DashboardPage() {
                         isLoading={isLoadingPrice}
                     />
 
-                    <AlertsWidget
-                        storageData={storageData}
-                        priceData={priceData}
-                        weatherData={weatherData}
-                    />
+                    <div id="alerts">
+                        <AlertsWidget
+                            storageData={storageData}
+                            priceData={priceData}
+                            weatherData={weatherData}
+                        />
+                    </div>
                 </div>
 
                 {/* Storage Forecaster Section */}
@@ -226,7 +228,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Main Analysis Row - Technical Terminal & Storage History */}
-                <div className="flex flex-col gap-8 mb-8">
+                <div id="charts" className="flex flex-col gap-8 mb-8">
                     <div className="w-full">
                         <TechnicalChartWidget
                             data={priceData?.historicalPrices || []}

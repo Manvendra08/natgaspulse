@@ -120,7 +120,7 @@ export default function MCXSeasonalitySpreadPanel({ historical, eiaHenryHub, usd
                 <div className="px-4 pt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/50 dark:bg-zinc-900/30">
                         <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Latest Spread</div>
-                        <div className={`text-xl font-black ${latestSpread && latestSpread.spread >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                        <div className={`text-xl font-black ${latestSpread && latestSpread.spread >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                             {latestSpread ? `INR ${latestSpread.spread.toFixed(2)}` : '-'}
                         </div>
                     </div>
@@ -154,4 +154,5 @@ export default function MCXSeasonalitySpreadPanel({ historical, eiaHenryHub, usd
         </div>
     );
 }
+
 

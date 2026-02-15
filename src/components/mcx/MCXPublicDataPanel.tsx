@@ -30,7 +30,7 @@ export default function MCXPublicDataPanel({ data }: MCXPublicDataPanelProps) {
                         </p>
                     </div>
                     <div className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded border ${data.sourceStatus.officialAvailable
-                        ? 'text-emerald-600 dark:text-emerald-400 border-emerald-500/40 bg-emerald-500/10'
+                        ? 'text-green-600 dark:text-green-400 border-green-500/40 bg-green-500/10'
                         : 'text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10'
                         }`}>
                         {data.sourceStatus.provider === 'mcx-official' ? 'Official MCX Source' : 'Fallback Public Source'}
@@ -42,7 +42,7 @@ export default function MCXPublicDataPanel({ data }: MCXPublicDataPanelProps) {
                         <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/50 dark:bg-zinc-900/40">
                             <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold mb-1">Delayed Price</div>
                             <div className="text-2xl font-black text-zinc-900 dark:text-zinc-100">INR {data.delayedPrice.lastPrice.toFixed(2)}</div>
-                            <div className={`text-xs font-black ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                            <div className={`text-xs font-black ${isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                                 {isPositive ? '+' : ''}{data.delayedPrice.change.toFixed(2)} ({data.delayedPrice.changePercent}%)
                             </div>
                         </div>
@@ -54,7 +54,7 @@ export default function MCXPublicDataPanel({ data }: MCXPublicDataPanelProps) {
                         <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/50 dark:bg-zinc-900/40">
                             <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold mb-1">Open Interest</div>
                             <div className="text-2xl font-black text-zinc-900 dark:text-zinc-100">{data.latestSettlement.openInterest.toLocaleString()}</div>
-                            <div className={`text-xs font-black ${data.latestSettlement.oiChange >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                            <div className={`text-xs font-black ${data.latestSettlement.oiChange >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                                 {data.latestSettlement.oiChange >= 0 ? '+' : ''}{data.latestSettlement.oiChange.toLocaleString()} d/d
                             </div>
                         </div>
@@ -82,7 +82,7 @@ export default function MCXPublicDataPanel({ data }: MCXPublicDataPanelProps) {
                                             <td className="px-3 py-2 text-right text-zinc-900 dark:text-zinc-100 font-semibold">INR {row.settlement.toFixed(2)}</td>
                                             <td className="px-3 py-2 text-right text-zinc-600 dark:text-zinc-300">{row.volume.toLocaleString()}</td>
                                             <td className="px-3 py-2 text-right text-zinc-600 dark:text-zinc-300">{row.openInterest.toLocaleString()}</td>
-                                            <td className={`px-3 py-2 text-right font-bold ${row.oiChange >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                                            <td className={`px-3 py-2 text-right font-bold ${row.oiChange >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                                                 {row.oiChange >= 0 ? '+' : ''}{row.oiChange.toLocaleString()}
                                             </td>
                                         </tr>
@@ -97,7 +97,7 @@ export default function MCXPublicDataPanel({ data }: MCXPublicDataPanelProps) {
             <div className="space-y-4">
                 <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 shadow-xl dark:shadow-2xl">
                     <div className="flex items-center gap-2 mb-3">
-                        <Package className="w-4 h-4 text-cyan-500" />
+                        <Package className="w-4 h-4 text-primary" />
                         <h3 className="text-sm font-black text-zinc-900 dark:text-zinc-100">Contract Specs</h3>
                     </div>
                     <div className="space-y-2 text-xs">
@@ -143,4 +143,6 @@ export default function MCXPublicDataPanel({ data }: MCXPublicDataPanelProps) {
         </div>
     );
 }
+
+
 

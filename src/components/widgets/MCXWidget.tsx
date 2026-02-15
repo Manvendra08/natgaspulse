@@ -64,7 +64,7 @@ export default function MCXWidget({ henryHubPrice }: MCXWidgetProps) {
                     </div>
                     <div className="bg-zinc-800/20 p-3 rounded border border-zinc-800">
                         <div className="text-xs text-zinc-500 mb-1">Lot Size</div>
-                        <div className="text-sm font-medium text-zinc-300">1250 MMBtu</div>
+                        <div className="text-sm font-medium text-zinc-300">125 MMBtu</div>
                     </div>
                 </div>
             </div>

@@ -217,7 +217,7 @@ export async function GET(request: Request) {
             contractSpec: {
                 symbol: 'NATURALGAS',
                 contractName: 'MCX Natural Gas Futures',
-                lotSize: '1250 MMBtu',
+                lotSize: '125 MMBtu',
                 tickSize: 'INR 0.10',
                 tickValueInr: 125,
                 marginRequirementPercent: 12.5,
@@ -249,4 +249,3 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: message }, { status: 500 });
     }
 }
-

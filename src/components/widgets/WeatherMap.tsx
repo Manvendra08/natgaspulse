@@ -24,8 +24,8 @@ export default function WeatherMap() {
         <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 rounded-xl p-6 shadow-2xl h-full flex flex-col hover:border-zinc-700 transition-all duration-300">
             <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
-                    <div className="p-2 bg-purple-500/10 rounded-lg border border-purple-500/30">
-                        <Map className="w-5 h-5 text-purple-400" />
+                    <div className="p-2 bg-accent/10 rounded-lg border border-accent/30">
+                        <Map className="w-5 h-5 text-accent" />
                     </div>
                     <h2 className="text-xl font-bold text-zinc-100">Temp Outlook</h2>
                 </div>
@@ -36,7 +36,7 @@ export default function WeatherMap() {
                             key={key}
                             onClick={() => setActiveMap(key as any)}
                             className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${activeMap === key
-                                ? 'bg-purple-500 text-white'
+                                ? 'bg-primary text-white'
                                 : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                                 }`}
                         >

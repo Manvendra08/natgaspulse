@@ -94,7 +94,7 @@ export default function PriceWidget(props: PriceWidgetProps) {
                     <div className="text-xs text-zinc-500 uppercase tracking-wider">USD / MMBtu</div>
                 </div>
 
-                <div className={`text-right ${isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
+                <div className={`text-right ${isPositive ? 'text-green-400' : 'text-red-400'}`}>
                     <div className="flex items-center justify-end gap-1 font-bold text-lg">
                         {isPositive ? <ArrowUp className="w-5 h-5" /> : <ArrowDown className="w-5 h-5" />}
                         {Math.abs(displayData.change).toFixed(3)}
@@ -123,3 +123,4 @@ export default function PriceWidget(props: PriceWidgetProps) {
         </div>
     );
 }
+

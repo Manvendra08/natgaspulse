@@ -33,10 +33,10 @@ export default function WeatherWidget({ data, isLoading = false }: WeatherWidget
     }
 
     return (
-        <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 md:p-6 shadow-xl dark:shadow-2xl hover:border-blue-500/30 transition-all duration-300">
+        <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 md:p-6 shadow-xl dark:shadow-2xl hover:border-primary/30 transition-all duration-300">
             <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2">
-                    <div className="p-2 bg-blue-500/10 rounded-lg border border-blue-500/30">
+                    <div className="p-2 bg-primary/10 rounded-lg border border-primary/30">
                         <CloudSun className="w-5 h-5 text-blue-500" />
                     </div>
                     <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">HDD/CDD Forecast</h2>
@@ -66,7 +66,7 @@ export default function WeatherWidget({ data, isLoading = false }: WeatherWidget
                                 <td className="py-3 text-right">
                                     <div className="flex items-center justify-end gap-2">
                                         {region.todayHDD > 0 && (
-                                            <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400 bg-blue-500/5 dark:bg-blue-500/10 px-1.5 py-0.5 rounded text-[10px] font-black">
+                                            <span className="flex items-center gap-1 text-primary bg-primary/5 dark:bg-primary/10 px-1.5 py-0.5 rounded text-[10px] font-black">
                                                 <Snowflake className="w-3 h-3" /> {region.todayHDD}
                                             </span>
                                         )}
@@ -84,7 +84,7 @@ export default function WeatherWidget({ data, isLoading = false }: WeatherWidget
                                 <td className="py-3 text-right">
                                     <div className="flex items-center justify-end gap-2 font-black">
                                         {region.total7DayHDD > 0 && (
-                                            <span className="text-blue-600 dark:text-blue-400">{region.total7DayHDD} <span className="text-[9px] text-zinc-400 uppercase">HDD</span></span>
+                                            <span className="text-primary">{region.total7DayHDD} <span className="text-[9px] text-zinc-400 uppercase">HDD</span></span>
                                         )}
                                         {region.total7DayCDD > 0 && (
                                             <span className="text-orange-600 dark:text-orange-400">{region.total7DayCDD} <span className="text-[9px] text-zinc-400 uppercase">CDD</span></span>
@@ -105,3 +105,4 @@ export default function WeatherWidget({ data, isLoading = false }: WeatherWidget
         </div>
     );
 }
+

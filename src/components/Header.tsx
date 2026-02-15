@@ -33,7 +33,7 @@ export default function Header({ className }: HeaderProps) {
                                 className={cn(
                                     'px-3 py-1.5 rounded-md border text-xs md:text-sm font-semibold transition-colors',
                                     active
-                                        ? 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/30'
+                                        ? 'bg-primary/10 text-primary border-primary/30'
                                         : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-900'
                                 )}
                             >
@@ -46,4 +46,3 @@ export default function Header({ className }: HeaderProps) {
         </header>
     );
 }
-

@@ -405,7 +405,7 @@ export default function StoragePredictor({
     const severityMeta = severity === 'large'
         ? { label: 'Large Withdrawal', color: 'text-red-300', badge: 'bg-red-500/20 border-red-400/40' }
         : severity === 'small'
-            ? { label: 'Small Withdrawal', color: 'text-emerald-300', badge: 'bg-emerald-500/20 border-emerald-400/40' }
+            ? { label: 'Small Withdrawal', color: 'text-green-300', badge: 'bg-green-500/20 border-green-400/40' }
             : { label: 'Normal Withdrawal', color: 'text-amber-300', badge: 'bg-amber-500/20 border-amber-400/40' };
 
     const mainMetricLabel = computed.season === 'winter' ? 'Weighted HDD' : 'Weighted CDD';
@@ -547,3 +547,4 @@ export default function StoragePredictor({
         </div>
     );
 }
+

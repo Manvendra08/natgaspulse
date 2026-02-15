@@ -25,20 +25,35 @@ export default function Logo({
     withLink = true,
     priority = false
 }: LogoProps) {
-    const src = variant === 'icon' ? '/images/logo.png' : '/images/logo-text.svg';
-    const width = variant === 'icon' ? iconSize : textWidth;
-    const height = variant === 'icon' ? iconSize : Math.round(textWidth * 0.233);
-
-    const content = (
-        <Image
-            src={src}
-            alt="NatGasPulse"
-            width={width}
-            height={height}
-            priority={priority}
-            className={cn('h-auto w-auto', className)}
-        />
-    );
+    const content = variant === 'icon'
+        ? (
+            <Image
+                src="/images/logo.png"
+                alt="NatGasPulse"
+                width={iconSize}
+                height={iconSize}
+                priority={priority}
+                className={cn('h-auto w-auto', className)}
+            />
+        )
+        : (
+            <div className={cn('inline-flex items-center gap-2', className)}>
+                <Image
+                    src="/images/logo.png"
+                    alt="NatGasPulse"
+                    width={iconSize}
+                    height={iconSize}
+                    priority={priority}
+                    className="h-auto w-auto"
+                />
+                <span
+                    className="hidden sm:inline text-primary font-bold tracking-tight leading-none"
+                    style={{ fontSize: Math.max(16, Math.round(textWidth / 12)) }}
+                >
+                    NatGasPulse
+                </span>
+            </div>
+        );
 
     if (!withLink) return content;
 
@@ -48,4 +63,3 @@ export default function Logo({
         </Link>
     );
 }
-

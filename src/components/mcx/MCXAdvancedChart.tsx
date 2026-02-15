@@ -238,7 +238,7 @@ export default function MCXAdvancedChart({ data }: MCXAdvancedChartProps) {
         }
 
         if (showMA20) {
-            const ma20Series = chart.addSeries(LineSeries, { color: '#a855f7', lineWidth: 2 });
+            const ma20Series = chart.addSeries(LineSeries, { color: '#8B5CF6', lineWidth: 2 });
             ma20Series.setData(indicatorData.rows
                 .filter((x) => x.ma20 !== null)
                 .map((x) => ({ time: x.unix, value: x.ma20 as number })));
@@ -415,7 +415,7 @@ export default function MCXAdvancedChart({ data }: MCXAdvancedChartProps) {
                         <button
                             onClick={() => setChartType('candlestick')}
                             className={`px-2.5 py-1.5 rounded text-xs font-bold border flex items-center gap-1 ${chartType === 'candlestick'
-                                ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
+                                ? 'border-primary/40 text-primary bg-primary/10'
                                 : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'
                                 }`}
                         >
@@ -424,7 +424,7 @@ export default function MCXAdvancedChart({ data }: MCXAdvancedChartProps) {
                         <button
                             onClick={() => setChartType('line')}
                             className={`px-2.5 py-1.5 rounded text-xs font-bold border flex items-center gap-1 ${chartType === 'line'
-                                ? 'border-cyan-500/40 text-cyan-600 dark:text-cyan-400 bg-cyan-500/10'
+                                ? 'border-primary/40 text-primary bg-primary/10'
                                 : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'
                                 }`}
                         >
@@ -433,7 +433,7 @@ export default function MCXAdvancedChart({ data }: MCXAdvancedChartProps) {
                         <button
                             onClick={() => setChartType('bar')}
                             className={`px-2.5 py-1.5 rounded text-xs font-bold border flex items-center gap-1 ${chartType === 'bar'
-                                ? 'border-blue-500/40 text-blue-600 dark:text-blue-400 bg-blue-500/10'
+                                ? 'border-primary/40 text-primary bg-primary/10'
                                 : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'
                                 }`}
                         >
@@ -470,10 +470,10 @@ export default function MCXAdvancedChart({ data }: MCXAdvancedChartProps) {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                    <button onClick={() => setShowVolume((v) => !v)} className={`px-3 py-1 rounded text-xs font-bold border ${showVolume ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>Volume</button>
-                    <button onClick={() => setShowMA20((v) => !v)} className={`px-3 py-1 rounded text-xs font-bold border ${showMA20 ? 'border-purple-500/40 text-purple-600 dark:text-purple-400' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>MA20</button>
+                    <button onClick={() => setShowVolume((v) => !v)} className={`px-3 py-1 rounded text-xs font-bold border ${showVolume ? 'border-primary/40 text-primary' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>Volume</button>
+                    <button onClick={() => setShowMA20((v) => !v)} className={`px-3 py-1 rounded text-xs font-bold border ${showMA20 ? 'border-primary/40 text-primary' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>MA20</button>
                     <button onClick={() => setShowMA50((v) => !v)} className={`px-3 py-1 rounded text-xs font-bold border ${showMA50 ? 'border-amber-500/40 text-amber-600 dark:text-amber-400' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>MA50</button>
-                    <button onClick={() => setShowBB((v) => !v)} className={`px-3 py-1 rounded text-xs font-bold border ${showBB ? 'border-blue-500/40 text-blue-600 dark:text-blue-400' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>Bollinger</button>
+                    <button onClick={() => setShowBB((v) => !v)} className={`px-3 py-1 rounded text-xs font-bold border ${showBB ? 'border-primary/40 text-primary' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>Bollinger</button>
                     <button onClick={() => setShowFib((v) => !v)} className={`px-3 py-1 rounded text-xs font-bold border ${showFib ? 'border-slate-500/40 text-slate-600 dark:text-slate-400' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>Fibonacci</button>
                 </div>
             </div>
@@ -484,7 +484,7 @@ export default function MCXAdvancedChart({ data }: MCXAdvancedChartProps) {
                         <PencilLine className="w-3 h-3" />
                         Manual Drawing
                     </span>
-                    <button onClick={() => setDrawMode('support')} className={`px-2.5 py-1 rounded text-xs font-bold border ${drawMode === 'support' ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>Support</button>
+                    <button onClick={() => setDrawMode('support')} className={`px-2.5 py-1 rounded text-xs font-bold border ${drawMode === 'support' ? 'border-green-500/40 text-green-600 dark:text-green-400' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>Support</button>
                     <button onClick={() => setDrawMode('resistance')} className={`px-2.5 py-1 rounded text-xs font-bold border ${drawMode === 'resistance' ? 'border-red-500/40 text-red-600 dark:text-red-400' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>Resistance</button>
                     <button onClick={() => setDrawMode('trendline')} className={`px-2.5 py-1 rounded text-xs font-bold border ${drawMode === 'trendline' ? 'border-orange-500/40 text-orange-600 dark:text-orange-400' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>Trendline (2 clicks)</button>
                     <button onClick={() => { setDrawMode('none'); pendingTrendlineRef.current = null; }} className="px-2.5 py-1 rounded text-xs font-bold border border-zinc-200 dark:border-zinc-800 text-zinc-500">Stop Drawing</button>
@@ -524,7 +524,7 @@ export default function MCXAdvancedChart({ data }: MCXAdvancedChartProps) {
                                 <Tooltip />
                                 <ReferenceLine y={70} stroke="#ef4444" strokeDasharray="4 4" />
                                 <ReferenceLine y={30} stroke="#22c55e" strokeDasharray="4 4" />
-                                <Line type="monotone" dataKey="rsi" stroke="#a855f7" dot={false} strokeWidth={2} />
+                                <Line type="monotone" dataKey="rsi" stroke="#8B5CF6" dot={false} strokeWidth={2} />
                             </LineChart>
                         </ResponsiveContainer>
                     </div>
@@ -550,11 +550,13 @@ export default function MCXAdvancedChart({ data }: MCXAdvancedChartProps) {
             </div>
 
             <div className="px-4 pb-4">
-                <button onClick={() => setShowMACD((v) => !v)} className={`mt-1 mr-2 px-3 py-1 rounded text-xs font-bold border ${showMACD ? 'border-cyan-500/40 text-cyan-600 dark:text-cyan-400' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>MACD</button>
-                <button onClick={() => setShowRSI((v) => !v)} className={`mt-1 mr-2 px-3 py-1 rounded text-xs font-bold border ${showRSI ? 'border-purple-500/40 text-purple-600 dark:text-purple-400' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>RSI</button>
-                <button onClick={() => setShowStoch((v) => !v)} className={`mt-1 px-3 py-1 rounded text-xs font-bold border ${showStoch ? 'border-blue-500/40 text-blue-600 dark:text-blue-400' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>Stochastic</button>
+                <button onClick={() => setShowMACD((v) => !v)} className={`mt-1 mr-2 px-3 py-1 rounded text-xs font-bold border ${showMACD ? 'border-primary/40 text-primary' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>MACD</button>
+                <button onClick={() => setShowRSI((v) => !v)} className={`mt-1 mr-2 px-3 py-1 rounded text-xs font-bold border ${showRSI ? 'border-primary/40 text-primary' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>RSI</button>
+                <button onClick={() => setShowStoch((v) => !v)} className={`mt-1 px-3 py-1 rounded text-xs font-bold border ${showStoch ? 'border-primary/40 text-primary' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500'}`}>Stochastic</button>
                 <span className="ml-2 text-[11px] text-zinc-500">Latest: {timeToLabel(indicatorData.rows[indicatorData.rows.length - 1].unix)}</span>
             </div>
         </div>
     );
 }
+
+

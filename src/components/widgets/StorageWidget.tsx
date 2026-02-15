@@ -75,7 +75,7 @@ export default function StorageWidget({
     }
 
     return (
-        <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 md:p-6 shadow-xl dark:shadow-2xl hover:border-emerald-500/30 transition-all duration-300 relative overflow-hidden h-full">
+        <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 md:p-6 shadow-xl dark:shadow-2xl hover:border-green-500/30 transition-all duration-300 relative overflow-hidden h-full">
             {isReportDay && (
                 <div className="absolute top-0 right-0 px-4 py-1 bg-red-600 animate-pulse transition-all">
                     <span className="text-[10px] font-black text-white uppercase tracking-widest">Report Day</span>
@@ -84,8 +84,8 @@ export default function StorageWidget({
 
             <div className="mb-6">
                 <div className="flex items-center gap-3 mb-2">
-                    <div className="p-2 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
-                        <Activity className="w-5 h-5 text-emerald-500" />
+                    <div className="p-2 bg-green-500/10 rounded-lg border border-green-500/30">
+                        <Activity className="w-5 h-5 text-green-500" />
                     </div>
                     <h2 className="text-xl md:text-2xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">Natural Gas Storage Data</h2>
                 </div>
@@ -107,14 +107,14 @@ export default function StorageWidget({
             <div className="flex flex-col sm:flex-row items-baseline sm:items-end justify-between mb-6 gap-4">
                 <div>
                     <div className="text-xs md:text-sm font-bold text-zinc-500 mb-1 uppercase tracking-wider">Current Inventory</div>
-                    <div className="text-4xl md:text-5xl font-black bg-gradient-to-r from-emerald-600 to-cyan-600 dark:from-emerald-400 dark:to-cyan-400 bg-clip-text text-transparent">
+                    <div className="text-4xl md:text-5xl font-black bg-gradient-to-r from-green-600 to-cyan-600 dark:from-green-400 dark:to-cyan-400 bg-clip-text text-transparent">
                         {current.toLocaleString()}
                     </div>
                     <div className="text-[9px] md:text-xs text-zinc-400 dark:text-zinc-500 mt-1 uppercase font-bold tracking-tighter">Billion Cubic Feet (BCF)</div>
                 </div>
                 <div className="sm:text-right w-full sm:w-auto p-3 sm:p-0 bg-zinc-50 dark:bg-transparent rounded-lg">
                     <div className="text-[10px] md:text-xs font-bold text-zinc-500 mb-1 uppercase tracking-wider">Weekly Change</div>
-                    <div className={`text-xl md:text-2xl font-black flex items-center sm:justify-end gap-1 ${isPositiveChange ? 'text-emerald-500' : 'text-red-500'}`}>
+                    <div className={`text-xl md:text-2xl font-black flex items-center sm:justify-end gap-1 ${isPositiveChange ? 'text-green-500' : 'text-red-500'}`}>
                         {isPositiveChange ? '+' : ''}{change.toLocaleString()}
                         <span className="text-xs font-bold text-zinc-400 ml-1">BCF</span>
                     </div>
@@ -125,18 +125,18 @@ export default function StorageWidget({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 {/* Deviation Badge */}
                 <div className={`flex flex-col justify-center px-4 py-3 rounded-lg border ${isPositiveDeviation
-                    ? 'bg-emerald-500/5 dark:bg-emerald-500/10 border-emerald-500/20 dark:border-emerald-500/30'
+                    ? 'bg-green-500/5 dark:bg-green-500/10 border-green-500/20 dark:border-green-500/30'
                     : 'bg-red-500/5 dark:bg-red-500/10 border-red-500/20 dark:border-red-500/30'
                     }`}>
                     <div className="flex items-center gap-2 mb-1">
                         {isPositiveDeviation ? (
-                            <TrendingUp className="w-4 h-4 text-emerald-500" />
+                            <TrendingUp className="w-4 h-4 text-green-500" />
                         ) : (
                             <TrendingDown className="w-4 h-4 text-red-500" />
                         )}
                         <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase">vs. 5yr Average</span>
                     </div>
-                    <div className={`text-xl font-black ${isPositiveDeviation ? 'text-emerald-500' : 'text-red-500'}`}>
+                    <div className={`text-xl font-black ${isPositiveDeviation ? 'text-green-500' : 'text-red-500'}`}>
                         {isPositiveDeviation ? '+' : ''}{deviation.toLocaleString()} BCF
                         <span className="text-xs font-bold ml-2 opacity-80 uppercase">({deviationPercent}%)</span>
                     </div>
@@ -156,7 +156,7 @@ export default function StorageWidget({
                             <Sparkles className="w-3.5 h-3.5" />
                             <span className="text-[9px] uppercase font-black tracking-widest">Est. Change</span>
                         </div>
-                        <span className={`text-sm font-black ${isPositiveForecast ? 'text-emerald-500' : 'text-red-500'}`}>
+                        <span className={`text-sm font-black ${isPositiveForecast ? 'text-green-500' : 'text-red-500'}`}>
                             {isPositiveForecast ? '+' : ''}{forecastChange.toLocaleString()} BCF
                         </span>
                     </div>
@@ -182,3 +182,4 @@ export default function StorageWidget({
         </div>
     );
 }
+

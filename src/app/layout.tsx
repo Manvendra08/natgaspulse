@@ -9,11 +9,17 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-    title: "Natural Gas Trading Dashboard",
-    description: "Professional trading intelligence for natural gas",
+    title: "NatGasPulse - Natural Gas Trading Intelligence",
+    description: "Real-time natural gas market data, EIA storage reports, weather forecasts, and trading signals for NYMEX and MCX markets",
+    icons: {
+        icon: "/natgaspulse_icon.png",
+        shortcut: "/natgaspulse_icon.png",
+        apple: "/natgaspulse_icon.png"
+    }
 };
 
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import Footer from "@/components/Footer";
 
 export default function RootLayout({
     children,
@@ -24,7 +30,12 @@ export default function RootLayout({
         <html lang="en" suppressHydrationWarning>
             <body className={`${inter.className} antialiased`}>
                 <ThemeProvider>
-                    {children}
+                    <div className="min-h-screen flex flex-col">
+                        <div className="flex-1">
+                            {children}
+                        </div>
+                        <Footer />
+                    </div>
                 </ThemeProvider>
             </body>
         </html>
