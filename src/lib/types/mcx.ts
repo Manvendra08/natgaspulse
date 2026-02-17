@@ -28,7 +28,7 @@ export interface McxPricePoint {
 
 export interface McxSourceStatus {
     officialAvailable: boolean;
-    provider: 'mcx-official' | 'fallback-yahoo';
+    provider: 'rupeezy-active-future' | 'mcx-official' | 'fallback-yahoo';
     delayedByMinutes: number;
     lastSyncAt: string;
     message: string;
@@ -56,4 +56,3 @@ export interface McxPublicDataResponse {
     historical: McxPricePoint[];
     eiaHenryHub: Array<{ date: string; value: number }>;
 }
-

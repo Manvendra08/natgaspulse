@@ -102,6 +102,17 @@ export default function TechnicalChartWidget({ data = [], isLoading = false }: T
                 vertLines: { color: isDark ? '#18181b' : '#f4f4f5' },
                 horzLines: { color: isDark ? '#18181b' : '#f4f4f5' },
             },
+            handleScroll: {
+                mouseWheel: false,
+                pressedMouseMove: true,
+                horzTouchDrag: true,
+                vertTouchDrag: false
+            },
+            handleScale: {
+                mouseWheel: false,
+                pinch: false,
+                axisPressedMouseMove: false
+            },
             width: chartContainerRef.current.clientWidth,
             height: 500,
         });
@@ -232,7 +243,7 @@ export default function TechnicalChartWidget({ data = [], isLoading = false }: T
 
             {/* Chart */}
             <div className="flex-1 bg-white dark:bg-[#09090b] relative min-h-[500px]">
-                <div ref={chartContainerRef} className="absolute inset-0 w-full h-full" />
+                <div ref={chartContainerRef} className="absolute inset-0 w-full h-full" style={{ touchAction: 'pan-y' }} />
                 {(!processedData || processedData.length === 0) && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-400 dark:text-zinc-600 gap-3">
                         <Activity className="w-10 h-10 opacity-10 animate-pulse" />

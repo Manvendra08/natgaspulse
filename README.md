@@ -53,7 +53,7 @@ Professional trading intelligence dashboard for natural gas markets using free g
    ```
 
 4. **Open browser**:
-   Navigate to [http://localhost:3000](http://localhost:3000)
+   Navigate to [http://localhost:3001](http://localhost:3001)
 
 ## API Endpoints
 

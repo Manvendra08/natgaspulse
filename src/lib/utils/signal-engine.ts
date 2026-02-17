@@ -365,8 +365,8 @@ function computeBiasScore(signals: IndicatorSignal[]): number {
 }
 
 function scoreToBias(score: number): SignalDirection {
-    if (score >= 25) return 'BUY';
-    if (score <= -25) return 'SELL';
+    if (score >= 18) return 'BUY';
+    if (score <= -18) return 'SELL';
     return 'HOLD';
 }
 
@@ -409,7 +409,8 @@ export function analyzeTimeframe(timeframe: Timeframe, candles: CandleData[]): T
 
 /** Combine all timeframe signals into overall score */
 export function computeOverallSignal(
-    timeframeSignals: TimeframeSignal[]
+    timeframeSignals: TimeframeSignal[],
+    liveChangePercent?: number
 ): { signal: SignalDirection; score: number; confidence: Confidence } {
     let weightedSum = 0;
     let totalWeight = 0;
@@ -420,31 +421,124 @@ export function computeOverallSignal(
         totalWeight += w;
     }
 
-    const score = totalWeight === 0 ? 0 : Math.round(weightedSum / totalWeight);
+    let score = totalWeight === 0 ? 0 : Math.round(weightedSum / totalWeight);
+
+    const daily = timeframeSignals.find((tf) => tf.timeframe === '1D');
+    const tf3H = timeframeSignals.find((tf) => tf.timeframe === '3H');
+    const tf1H = timeframeSignals.find((tf) => tf.timeframe === '1H');
+
+    const dailyMove = daily?.priceChangePercent ?? 0;
+    const liveMove = Number.isFinite(liveChangePercent as number)
+        ? (liveChangePercent as number)
+        : dailyMove;
+    const dominantMove = Math.abs(liveMove) >= Math.abs(dailyMove) ? liveMove : dailyMove;
+
+    // Professional override: strong one-day move should not stay neutral.
+    if (dominantMove <= -2.5) {
+        score -= 36;
+    } else if (dominantMove >= 2.5) {
+        score += 36;
+    }
+
+    if (daily) {
+        const ind = daily.indicators;
+        const ema20 = ind.ema20;
+        const ema50 = ind.ema50;
+        const vwap = ind.vwap;
+        const plusDI = ind.plusDI;
+        const minusDI = ind.minusDI;
+
+        const bearishStructure = ema20 !== null && ema50 !== null
+            && daily.lastPrice < ema20
+            && ema20 < ema50;
+        const bullishStructure = ema20 !== null && ema50 !== null
+            && daily.lastPrice > ema20
+            && ema20 > ema50;
+
+        if (bearishStructure) {
+            score -= 15;
+        } else if (bullishStructure) {
+            score += 15;
+        }
+
+        if (vwap !== null) {
+            if (daily.lastPrice < vwap * 0.997) {
+                score -= 6;
+            } else if (daily.lastPrice > vwap * 1.003) {
+                score += 6;
+            }
+        }
+
+        if (plusDI !== null && minusDI !== null) {
+            const diSpread = plusDI - minusDI;
+            if (diSpread <= -8) {
+                score -= 10;
+            } else if (diSpread >= 8) {
+                score += 10;
+            }
+        }
+    }
+
+    const intradayMomentum = ((tf1H?.priceChangePercent ?? 0) + (tf3H?.priceChangePercent ?? 0)) / 2;
+    if (intradayMomentum <= -1.0) {
+        score -= 10;
+    } else if (intradayMomentum >= 1.0) {
+        score += 10;
+    }
+
+    score = clampScore(score);
     const signal = scoreToBias(score);
 
     // Confidence = agreement across timeframes
-    const agreeing = timeframeSignals.filter(tf => tf.bias === signal).length;
+    const agreeing = timeframeSignals.filter((tf) => tf.bias === signal).length;
     const ratio = agreeing / Math.max(timeframeSignals.length, 1);
     let confidence: Confidence = 'LOW';
-    if (ratio >= 0.7 && Math.abs(score) >= 40) confidence = 'HIGH';
-    else if (ratio >= 0.5 && Math.abs(score) >= 20) confidence = 'MEDIUM';
+    const absScore = Math.abs(score);
+
+    if (ratio >= 0.65 && absScore >= 42) {
+        confidence = 'HIGH';
+    } else if (ratio >= 0.45 && absScore >= 20) {
+        confidence = 'MEDIUM';
+    }
+
+    if (Math.abs(dominantMove) >= 4.0 && absScore >= 30) {
+        confidence = 'HIGH';
+    } else if (Math.abs(dominantMove) >= 2.5 && absScore >= 18 && confidence === 'LOW') {
+        confidence = 'MEDIUM';
+    }
 
     return { signal, score, confidence };
 }
 
 /** Determine market condition from ADX */
 export function determineMarketCondition(
-    dailySignal: TimeframeSignal
+    dailySignal: TimeframeSignal,
+    liveChangePercent?: number
 ): 'TRENDING' | 'RANGING' | 'VOLATILE' {
     const adx = dailySignal.indicators.adx;
     const atr = dailySignal.indicators.atr;
-    const bb = dailySignal.indicators.bollingerUpper !== null && dailySignal.indicators.bollingerLower !== null
-        ? dailySignal.indicators.bollingerUpper - dailySignal.indicators.bollingerLower
-        : null;
+    const plusDI = dailySignal.indicators.plusDI;
+    const minusDI = dailySignal.indicators.minusDI;
+    const diSpread = plusDI !== null && minusDI !== null ? Math.abs(plusDI - minusDI) : 0;
+    const atrPercent = atr !== null && dailySignal.lastPrice > 0
+        ? (atr / dailySignal.lastPrice) * 100
+        : 0;
+    const dominantMove = Number.isFinite(liveChangePercent as number)
+        ? Math.abs(liveChangePercent as number)
+        : Math.abs(dailySignal.priceChangePercent);
 
-    if (adx !== null && adx > 25) return 'TRENDING';
-    if (atr !== null && bb !== null && atr > bb * 0.3) return 'VOLATILE';
+    if (dominantMove >= 3.5 || atrPercent >= 2.8) {
+        return 'VOLATILE';
+    }
+
+    if ((adx !== null && adx >= 22 && diSpread >= 5) || dominantMove >= 1.6) {
+        return 'TRENDING';
+    }
+
+    if (atrPercent >= 2.0) {
+        return 'VOLATILE';
+    }
+
     return 'RANGING';
 }
 
@@ -453,20 +547,29 @@ export function generateFuturesSetup(
     dailySignal: TimeframeSignal,
     overallDirection: SignalDirection
 ): FuturesSetup | null {
-    if (overallDirection === 'HOLD') return null;
-
     const price = dailySignal.lastPrice;
+    if (!Number.isFinite(price) || price <= 0) {
+        return null;
+    }
+
+    const resolvedDirection = resolveDirectionalLean(dailySignal, overallDirection);
+    const neutralFramework = overallDirection === 'HOLD';
     const atr = dailySignal.indicators.atr || price * 0.02;
     const ind = dailySignal.indicators;
+    const slBuffer = Math.max(atr * 0.12, price * 0.0015);
+    const rationalePrefix = neutralFramework
+        ? 'Neutral aggregate score. Setup uses daily DI/EMA directional lean.'
+        : '';
 
-    if (overallDirection === 'BUY') {
+    if (resolvedDirection === 'BUY') {
         const entry = price;
-        const sl = Math.max(
-            price - 1.5 * atr,
-            ind.pivotS1 !== null ? ind.pivotS1 - 0.01 : price - 1.5 * atr
+        const stopFallback = price - 1.4 * atr;
+        const sl = Math.min(
+            stopFallback,
+            ind.pivotS1 !== null ? ind.pivotS1 - slBuffer : stopFallback
         );
-        const target1 = ind.pivotR1 !== null ? ind.pivotR1 : price + 1.5 * atr;
-        const target2 = ind.pivotR2 !== null ? ind.pivotR2 : price + 2.5 * atr;
+        const target1 = Math.max(ind.pivotR1 ?? price + 1.4 * atr, price + 1.1 * atr);
+        const target2 = Math.max(ind.pivotR2 ?? price + 2.3 * atr, target1 + 0.8 * atr);
         const risk = entry - sl;
         const rr = risk > 0 ? (target1 - entry) / risk : 0;
 
@@ -478,16 +581,19 @@ export function generateFuturesSetup(
             target2: round4(target2),
             riskRewardRatio: Math.round(rr * 100) / 100,
             atrValue: round4(atr),
-            rationale: buildFuturesRationale(dailySignal, 'BUY')
+            rationale: `${rationalePrefix} ${buildFuturesRationale(dailySignal, 'BUY')}`.trim()
         };
-    } else {
+    }
+
+    if (resolvedDirection === 'SELL') {
         const entry = price;
-        const sl = Math.min(
-            price + 1.5 * atr,
-            ind.pivotR1 !== null ? ind.pivotR1 + 0.01 : price + 1.5 * atr
+        const stopFallback = price + 1.4 * atr;
+        const sl = Math.max(
+            stopFallback,
+            ind.pivotR1 !== null ? ind.pivotR1 + slBuffer : stopFallback
         );
-        const target1 = ind.pivotS1 !== null ? ind.pivotS1 : price - 1.5 * atr;
-        const target2 = ind.pivotS2 !== null ? ind.pivotS2 : price - 2.5 * atr;
+        const target1 = Math.min(ind.pivotS1 ?? price - 1.4 * atr, price - 1.1 * atr);
+        const target2 = Math.min(ind.pivotS2 ?? price - 2.3 * atr, target1 - 0.8 * atr);
         const risk = sl - entry;
         const rr = risk > 0 ? (entry - target1) / risk : 0;
 
@@ -499,9 +605,11 @@ export function generateFuturesSetup(
             target2: round4(target2),
             riskRewardRatio: Math.round(rr * 100) / 100,
             atrValue: round4(atr),
-            rationale: buildFuturesRationale(dailySignal, 'SELL')
+            rationale: `${rationalePrefix} ${buildFuturesRationale(dailySignal, 'SELL')}`.trim()
         };
     }
+
+    return null;
 }
 
 function buildFuturesRationale(tf: TimeframeSignal, dir: SignalDirection): string {
@@ -518,16 +626,46 @@ export function generateSummary(
     confidence: Confidence,
     score: number,
     condition: string,
-    timeframes: TimeframeSignal[]
+    timeframes: TimeframeSignal[],
+    liveChangePercent?: number
 ): string {
-    const bullishTFs = timeframes.filter(t => t.bias === 'BUY').map(t => t.timeframe).join(', ');
-    const bearishTFs = timeframes.filter(t => t.bias === 'SELL').map(t => t.timeframe).join(', ');
+    const bullishTFs = timeframes.filter((t) => t.bias === 'BUY').map((t) => t.timeframe).join(', ');
+    const bearishTFs = timeframes.filter((t) => t.bias === 'SELL').map((t) => t.timeframe).join(', ');
     const dir = overallSignal === 'BUY' ? 'BULLISH' : overallSignal === 'SELL' ? 'BEARISH' : 'NEUTRAL';
 
     let text = `Overall ${dir} bias (score: ${score}) with ${confidence} confidence. Market is ${condition.toLowerCase()}.`;
-    if (bullishTFs) text += ` Bullish on: ${bullishTFs}.`;
-    if (bearishTFs) text += ` Bearish on: ${bearishTFs}.`;
+    if (Number.isFinite(liveChangePercent as number)) {
+        const move = liveChangePercent as number;
+        text += ` Active future move: ${move >= 0 ? '+' : ''}${move.toFixed(2)}%.`;
+    }
+    if (bullishTFs) {
+        text += ` Bullish on: ${bullishTFs}.`;
+    }
+    if (bearishTFs) {
+        text += ` Bearish on: ${bearishTFs}.`;
+    }
     return text;
+}
+
+function resolveDirectionalLean(tf: TimeframeSignal, overallDirection: SignalDirection): SignalDirection {
+    if (overallDirection !== 'HOLD') {
+        return overallDirection;
+    }
+
+    const ind = tf.indicators;
+    if (ind.plusDI !== null && ind.minusDI !== null && Math.abs(ind.plusDI - ind.minusDI) >= 3) {
+        return ind.plusDI > ind.minusDI ? 'BUY' : 'SELL';
+    }
+
+    if (ind.ema20 !== null && ind.ema50 !== null && Math.abs(ind.ema20 - ind.ema50) > 0) {
+        return ind.ema20 > ind.ema50 ? 'BUY' : 'SELL';
+    }
+
+    return tf.priceChangePercent >= 0 ? 'BUY' : 'SELL';
+}
+
+function clampScore(score: number): number {
+    return Math.max(-100, Math.min(100, Math.round(score)));
 }
 
 function round4(n: number): number {

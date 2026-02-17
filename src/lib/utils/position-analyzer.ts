@@ -55,12 +55,12 @@ export interface AnalyzedPortfolio {
 const NAT_GAS_LOT_SIZES: Array<{ prefix: string; lotSize: number }> = [
     { prefix: 'NATGASMICRO', lotSize: 25 },
     { prefix: 'NATGASMINI', lotSize: 250 },
-    { prefix: 'NATGAS', lotSize: 125 },
+    { prefix: 'NATGAS', lotSize: 1250 },
     { prefix: 'NATURALGASMICRO', lotSize: 25 },
     { prefix: 'NATURALGASMINI', lotSize: 250 },
-    { prefix: 'NATURALGAS', lotSize: 125 }
+    { prefix: 'NATURALGAS', lotSize: 1250 }
 ];
-const DEFAULT_NAT_GAS_LOT_SIZE = 125;
+const DEFAULT_NAT_GAS_LOT_SIZE = 1250;
 const IST_OFFSET_MINUTES = 5.5 * 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -89,6 +89,10 @@ export async function analyzePositions(
 
     let netDelta = 0;
     let netTheta = 0;
+    let sumThetaAllLegs = 0;
+    let sumLotsAllLegs = 0;
+    const optionLotSizes: number[] = [];
+    let weightedThetaFallback = 0;
 
     analyzedPositions.forEach((pos) => {
         if (pos.instrumentType === 'FUTURE') {
@@ -102,11 +106,24 @@ export async function analyzePositions(
         }
 
         // User formulas:
-        // overall Theta = per-contract Theta * number of lots
+        // overall Theta = sum(theta of all legs) * sum(lots) * lot size
         // Delta = option Delta * number of lots * lot size
-        netTheta += pos.greeks.theta * pos.numberOfLots;
+        sumThetaAllLegs += pos.greeks.theta;
+        sumLotsAllLegs += pos.numberOfLots;
+        optionLotSizes.push(pos.lotSize);
+        weightedThetaFallback += pos.greeks.theta * pos.numberOfLots * pos.lotSize;
         netDelta += pos.greeks.delta * pos.numberOfLots * pos.lotSize;
     });
+
+    if (optionLotSizes.length > 0) {
+        const uniqueLotSizes = Array.from(new Set(optionLotSizes.filter((size) => Number.isFinite(size) && size > 0)));
+        if (uniqueLotSizes.length === 1) {
+            netTheta = sumThetaAllLegs * sumLotsAllLegs * uniqueLotSizes[0];
+        } else {
+            // Mixed lot-size portfolio: use weighted sum fallback to avoid distortion.
+            netTheta = weightedThetaFallback;
+        }
+    }
 
     // Decay = Theta * days till next market open (9 AM IST).
     const daysToNextOpen = getDaysToNextMarketOpenIST();

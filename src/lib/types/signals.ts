@@ -4,6 +4,7 @@ export type Timeframe = '1H' | '3H' | '1D' | '1W' | '1M';
 export type SignalDirection = 'BUY' | 'SELL' | 'HOLD';
 export type Confidence = 'HIGH' | 'MEDIUM' | 'LOW';
 export type OptionType = 'CE' | 'PE';
+export type SignalDataSource = 'Rupeezy Active Future' | 'MCX Official' | 'Derived (NYMEX * USDINR)';
 
 export interface CandleData {
     time: number;
@@ -82,6 +83,8 @@ export interface OptionsRecommendation {
 export interface SignalBotResponse {
     timestamp: string;
     currentPrice: number;
+    liveChange?: number;
+    liveChangePercent?: number;
     overallSignal: SignalDirection;
     overallConfidence: Confidence;
     overallScore: number; // -100 to +100
@@ -90,7 +93,7 @@ export interface SignalBotResponse {
     optionsRecommendations: OptionsRecommendation[];
     marketCondition: 'TRENDING' | 'RANGING' | 'VOLATILE';
     summary: string;
-    dataSource?: 'MCX Official' | 'Derived (NYMEX * USDINR)';
+    dataSource?: SignalDataSource;
     optionChainAnalysis?: OptionChainAnalysis; // New field
 }
 

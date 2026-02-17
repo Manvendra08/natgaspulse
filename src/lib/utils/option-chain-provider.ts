@@ -1,8 +1,43 @@
-import { OptionChainAnalysis, OptionStrike } from '@/lib/types/signals';
+﻿import { OptionChainAnalysis, OptionStrike } from '@/lib/types/signals';
+
+interface RupeezyLegRaw {
+    token?: number;
+    ltp?: number;
+    openInterest?: number;
+    volume?: number;
+    strikePrice?: number;
+    greeks?: {
+        iv?: number;
+    };
+}
+
+interface RupeezyOptionDataRaw {
+    strikePrice?: number;
+    greekIv?: number;
+    CE?: RupeezyLegRaw;
+    PE?: RupeezyLegRaw;
+}
+
+interface RupeezyOptionChainRaw {
+    status?: string;
+    response?: {
+        optionData?: RupeezyOptionDataRaw[];
+    };
+}
+
+interface RupeezyLtpRaw {
+    scrip_token?: number;
+    ltp?: number;
+    total_quantity_traded?: number;
+    open_interest?: number;
+}
+
+const RUPEEZY_STOCKDATA_ENDPOINT = 'https://stockdata.rupeezy.in';
+const RUPEEZY_CMS_ENDPOINT = 'https://cms.rupeezy.in';
 
 /**
- * Parses the raw option chain data from Dhan or Moneycontrol.
- * Falls back to a heuristic simulation if live data is unavailable.
+ * Pull option-chain for NATURALGAS from Rupeezy public endpoints.
+ * Falls back to a deterministic simulation when upstream is unavailable.
  */
 export async function getOptionChainAnalysis(spotPrice: number): Promise<OptionChainAnalysis> {
     try {
@@ -14,127 +49,110 @@ export async function getOptionChainAnalysis(spotPrice: number): Promise<OptionC
         console.warn('Live option chain fetch failed, using simulation:', e);
     }
 
-    // Fallback: Generate simulated chain based on Black-Scholes & Standard Distribution
     const simChain = generateSimulatedChain(spotPrice);
     return analyzeChain(simChain, spotPrice);
 }
 
-// ─── Scraper Logic ─────────────────────────────────────────────
-
 async function fetchLiveOptionChain(): Promise<OptionStrike[] | null> {
-    // Attempt 1: Dhan.co (Next.js Hydration Data)
-    try {
-        const res = await fetch('https://dhan.co/commodity/natural-gas-option-chain/', {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-            },
-            next: { revalidate: 300 } // Cache 5 mins
-        });
+    const optionChainUrl = `${RUPEEZY_STOCKDATA_ENDPOINT}/flow/api/v1/stock/optionchain?symbol=NATURALGAS&InstrumentType=mcx&ExpiryDate=0&AddGreek=true`;
 
-        if (!res.ok) throw new Error(`Dhan fetch failed: ${res.status}`);
+    const baseRes = await fetch(optionChainUrl, {
+        headers: {
+            Accept: 'application/json',
+            'User-Agent': 'Mozilla/5.0'
+        },
+        cache: 'no-store'
+    });
 
-        const html = await res.text();
-        const json = extractNextData(html);
-
-        if (json) {
-            // Traverse JSON to find array with strike prices
-            const chain = findOptionChainInJson(json);
-            if (chain) return chain;
-        }
-    } catch (e) {
-        console.warn('Dhan scraper error:', e);
+    if (!baseRes.ok) {
+        throw new Error(`Rupeezy option-chain fetch failed: ${baseRes.status}`);
     }
 
-    return null;
-}
-
-function extractNextData(html: string): any {
-    const startMarker = '<script id="__NEXT_DATA__" type="application/json">';
-    const endMarker = '</script>';
-    const start = html.indexOf(startMarker);
-    if (start === -1) return null;
-    const jsonStart = start + startMarker.length;
-    const end = html.indexOf(endMarker, jsonStart);
-    if (end === -1) return null;
-
-    try {
-        return JSON.parse(html.substring(jsonStart, end));
-    } catch {
+    const basePayload = await baseRes.json() as RupeezyOptionChainRaw;
+    if (basePayload.status !== 'success' || !basePayload.response?.optionData?.length) {
         return null;
     }
-}
 
-function findOptionChainInJson(obj: any): OptionStrike[] | null {
-    // Recursive search for an array that looks like option data
-    if (!obj || typeof obj !== 'object') return null;
+    const ltpMap = await fetchRupeezyLtpMap();
 
-    // Heuristic: Array with objects containing 'strike_price', 'call_oi', etc.
-    if (Array.isArray(obj)) {
-        // Check first element
-        const first = obj[0];
-        if (first && (typeof first.strike_price === 'number' || typeof first.StrikePrice === 'number')) {
-            // Map to our format
-            return obj.map((item: any) => ({
-                strikePrice: Number(item.strike_price || item.StrikePrice || item.strike || 0),
+    const chain = basePayload.response.optionData
+        .map((item) => {
+            const strikePrice = normalizeRupeezyPrice(item.strikePrice ?? item.CE?.strikePrice ?? item.PE?.strikePrice);
+            if (!Number.isFinite(strikePrice) || strikePrice <= 0) return null;
+
+            const ceToken = toNum(item.CE?.token);
+            const peToken = toNum(item.PE?.token);
+            const ceSnap = ltpMap.get(ceToken);
+            const peSnap = ltpMap.get(peToken);
+            const iv = firstFinite(item.greekIv, item.CE?.greeks?.iv, item.PE?.greeks?.iv, 0);
+
+            return {
+                strikePrice,
                 ce: {
-                    ltp: Number(item.call_ltp || item.CallLtp || item.ce_ltp || 0),
-                    oi: Number(item.call_oi || item.CallOi || item.ce_oi || 0),
-                    vol: Number(item.call_vol || item.CallVol || item.ce_vol || 0),
-                    iv: Number(item.call_iv || item.CallIv || 0)
+                    ltp: firstFinite(ceSnap?.ltp, item.CE?.ltp, 0),
+                    oi: firstFinite(ceSnap?.open_interest, item.CE?.openInterest, 0),
+                    vol: firstFinite(ceSnap?.total_quantity_traded, item.CE?.volume, 0),
+                    iv
                 },
                 pe: {
-                    ltp: Number(item.put_ltp || item.PutLtp || item.pe_ltp || 0),
-                    oi: Number(item.put_oi || item.PutOi || item.pe_oi || 0),
-                    vol: Number(item.put_vol || item.PutVol || item.pe_vol || 0),
-                    iv: Number(item.put_iv || item.PutIv || 0)
+                    ltp: firstFinite(peSnap?.ltp, item.PE?.ltp, 0),
+                    oi: firstFinite(peSnap?.open_interest, item.PE?.openInterest, 0),
+                    vol: firstFinite(peSnap?.total_quantity_traded, item.PE?.volume, 0),
+                    iv
                 }
-            })).filter(s => s.strikePrice > 0).sort((a, b) => a.strikePrice - b.strikePrice);
+            } as OptionStrike;
+        })
+        .filter((item): item is OptionStrike => item !== null)
+        .sort((a, b) => a.strikePrice - b.strikePrice);
+
+    return chain.length ? chain : null;
+}
+
+async function fetchRupeezyLtpMap(): Promise<Map<number, RupeezyLtpRaw>> {
+    const response = await fetch(`${RUPEEZY_CMS_ENDPOINT}/flow/api/v1/optionchainltpsmcx/NATURALGAS`, {
+        headers: {
+            Accept: 'application/json',
+            'User-Agent': 'Mozilla/5.0'
+        },
+        cache: 'no-store'
+    });
+
+    if (!response.ok) {
+        return new Map();
+    }
+
+    const payload = await response.json() as RupeezyLtpRaw[];
+    const map = new Map<number, RupeezyLtpRaw>();
+
+    for (const row of payload || []) {
+        const token = toNum(row.scrip_token);
+        if (token > 0) {
+            map.set(token, row);
         }
     }
 
-    // Recurse
-    for (const key in obj) {
-        const result = findOptionChainInJson(obj[key]);
-        if (result) return result;
-    }
-
-    return null;
+    return map;
 }
-
-// ─── Simulation Logic ──────────────────────────────────────────
 
 function generateSimulatedChain(spot: number): OptionStrike[] {
     const strikes: OptionStrike[] = [];
-    const step = 5; // MCX Step
+    const step = 5;
     const atm = Math.round(spot / step) * step;
 
-    // Generate 10 strikes above and below
     for (let i = -10; i <= 10; i++) {
         const strike = atm + (i * step);
         const dist = Math.abs(strike - spot);
 
-        // Simulate Logic:
-        // LTP: Intrinsic + Time Value (Decay func)
-        // OI: Bell curve peaked at ATM/Slightly OTM
-
-        // Time Value (Approx 10% of spot, decaying with distance)
         const timeValue = (spot * 0.05) * Math.exp(-dist / (spot * 0.2));
-
-        // Call LTP
         const callIntrinsic = Math.max(0, spot - strike);
-        const callLtp = callIntrinsic + timeValue;
-
-        // Put LTP
         const putIntrinsic = Math.max(0, strike - spot);
+        const callLtp = callIntrinsic + timeValue;
         const putLtp = putIntrinsic + timeValue;
 
-        // OI Distribution (Bell curve centered near ATM)
-        // Add some noise/randomness for realism
         const baseOi = 1000;
-        const oiFactor = Math.exp(-Math.pow(strike - spot, 2) / (2 * Math.pow(spot * 0.1, 2))); // Gaussian
-        const callOi = Math.round(baseOi * oiFactor * (1 + Math.random() * 0.5));
-        const putOi = Math.round(baseOi * oiFactor * (1 + Math.random() * 0.5));
+        const oiFactor = Math.exp(-Math.pow(strike - spot, 2) / (2 * Math.pow(spot * 0.1, 2)));
+        const callOi = Math.round(baseOi * oiFactor);
+        const putOi = Math.round(baseOi * oiFactor);
 
         strikes.push({
             strikePrice: strike,
@@ -142,10 +160,9 @@ function generateSimulatedChain(spot: number): OptionStrike[] {
             pe: { ltp: Number(putLtp.toFixed(2)), oi: putOi, vol: Math.round(putOi * 0.1), iv: 45 }
         });
     }
+
     return strikes;
 }
-
-// ─── Analysis Logic ────────────────────────────────────────────
 
 function analyzeChain(chain: OptionStrike[], spot: number): OptionChainAnalysis {
     let totalCeOi = 0;
@@ -156,24 +173,26 @@ function analyzeChain(chain: OptionStrike[], spot: number): OptionChainAnalysis 
     let putSup = 0;
     let maxPainParams = { strike: 0, pain: Infinity };
 
-    // Calculate PCR & Support/Resistance
-    chain.forEach(s => {
+    chain.forEach((s) => {
         totalCeOi += s.ce.oi;
         totalPeOi += s.pe.oi;
 
-        if (s.ce.oi > maxCeOi) { maxCeOi = s.ce.oi; callRes = s.strikePrice; }
-        if (s.pe.oi > maxPeOi) { maxPeOi = s.pe.oi; putSup = s.strikePrice; }
+        if (s.ce.oi > maxCeOi) {
+            maxCeOi = s.ce.oi;
+            callRes = s.strikePrice;
+        }
+        if (s.pe.oi > maxPeOi) {
+            maxPeOi = s.pe.oi;
+            putSup = s.strikePrice;
+        }
     });
 
-    // Calculate Max Pain (Simplified)
-    // Find strike where (Call Intrinsic * Call OI) + (Put Intrinsic * Put OI) is minimized
-    chain.forEach(candidate => {
+    chain.forEach((candidate) => {
         let totalPain = 0;
         const k = candidate.strikePrice;
 
-        chain.forEach(s => {
+        chain.forEach((s) => {
             const sK = s.strikePrice;
-            // Loss for option writers at expiry K
             const callLoss = Math.max(0, k - sK) * s.ce.oi;
             const putLoss = Math.max(0, sK - k) * s.pe.oi;
             totalPain += callLoss + putLoss;
@@ -189,7 +208,29 @@ function analyzeChain(chain: OptionStrike[], spot: number): OptionChainAnalysis 
         maxPain: maxPainParams.strike,
         callResistance: callRes,
         putSupport: putSup,
-        atmIv: 45, // Placeholder or calculate average
-        chain: chain // Return full chain for UI if needed
+        atmIv: 45,
+        chain
     };
 }
+
+function normalizeRupeezyPrice(value: unknown): number {
+    const n = toNum(value);
+    if (n <= 0) return 0;
+    return n > 5000 ? n / 100 : n;
+}
+
+function toNum(value: unknown): number {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function firstFinite(...values: Array<unknown>): number {
+    for (const value of values) {
+        const n = Number(value);
+        if (Number.isFinite(n)) {
+            return n;
+        }
+    }
+    return 0;
+}
+

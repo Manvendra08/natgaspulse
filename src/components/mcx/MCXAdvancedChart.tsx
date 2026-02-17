@@ -193,6 +193,17 @@ export default function MCXAdvancedChart({ data }: MCXAdvancedChartProps) {
                 vertLines: { color: isDark ? '#18181b' : '#f4f4f5' },
                 horzLines: { color: isDark ? '#18181b' : '#f4f4f5' }
             },
+            handleScroll: {
+                mouseWheel: false,
+                pressedMouseMove: true,
+                horzTouchDrag: true,
+                vertTouchDrag: false
+            },
+            handleScale: {
+                mouseWheel: false,
+                pinch: false,
+                axisPressedMouseMove: false
+            },
             width: chartRef.current.clientWidth,
             height: 500
         });
@@ -493,7 +504,7 @@ export default function MCXAdvancedChart({ data }: MCXAdvancedChartProps) {
                 </div>
             </div>
 
-            <div className="h-[500px] w-full" ref={chartRef} />
+            <div className="h-[500px] w-full" ref={chartRef} style={{ touchAction: 'pan-y' }} />
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 p-4 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/30 dark:bg-zinc-900/10">
                 {showMACD && (

@@ -61,7 +61,7 @@ export default function TradingSignalBot() {
         try {
             setLoading(true);
             setError(null);
-            const res = await fetch('/api/signals');
+            const res = await fetch(`/api/signals?t=${Date.now()}`, { cache: 'no-store' });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const json: SignalBotResponse = await res.json();
             setData(json);
@@ -123,6 +123,11 @@ export default function TradingSignalBot() {
                                             Official
                                         </span>
                                     )}
+                                    {data?.dataSource === 'Rupeezy Active Future' && (
+                                        <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
+                                            Live
+                                        </span>
+                                    )}
                                     {data?.dataSource === 'Derived (NYMEX * USDINR)' && (
                                         <span className="text-[10px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
                                             Parity
@@ -174,7 +179,18 @@ export default function TradingSignalBot() {
                                 </div>
 
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 flex-1">
-                                    <MiniStat label="Price" value={`₹${formatPrice(data.currentPrice)}`} />
+                                    <MiniStat
+                                        label="Price"
+                                        value={`Rs ${formatPrice(data.currentPrice)}`}
+                                        subValue={data.liveChangePercent != null
+                                            ? `${data.liveChangePercent >= 0 ? '+' : ''}${data.liveChangePercent.toFixed(2)}%`
+                                            : undefined}
+                                        subValueClass={data.liveChangePercent == null
+                                            ? 'text-zinc-500'
+                                            : data.liveChangePercent >= 0
+                                                ? 'text-emerald-400'
+                                                : 'text-red-400'}
+                                    />
                                     <MiniStat label="Score" value={`${data.overallScore > 0 ? '+' : ''}${data.overallScore}`} valueClass={signalColor(data.overallSignal)} />
                                     <MiniStat label="Confidence" value={data.overallConfidence} valueClass={confidenceColor(data.overallConfidence)} />
                                     <MiniStat label="Market" value={data.marketCondition} valueClass={data.marketCondition === 'TRENDING' ? 'text-violet-400' : data.marketCondition === 'VOLATILE' ? 'text-amber-400' : 'text-zinc-400'} />
@@ -321,11 +337,24 @@ export default function TradingSignalBot() {
 
 // ─── Sub-Components ────────────────────────────────────────────
 
-function MiniStat({ label, value, valueClass = 'text-zinc-100' }: { label: string; value: string; valueClass?: string }) {
+function MiniStat({
+    label,
+    value,
+    valueClass = 'text-zinc-100',
+    subValue,
+    subValueClass = 'text-zinc-500'
+}: {
+    label: string;
+    value: string;
+    valueClass?: string;
+    subValue?: string;
+    subValueClass?: string;
+}) {
     return (
         <div className="bg-zinc-800/30 border border-zinc-800 rounded-lg p-3">
             <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold mb-1">{label}</div>
             <div className={`text-sm font-black ${valueClass}`}>{value}</div>
+            {subValue && <div className={`text-[10px] font-bold mt-1 ${subValueClass}`}>{subValue}</div>}
         </div>
     );
 }
@@ -453,3 +482,4 @@ function IndicatorHeatmap({ timeframes }: { timeframes: TimeframeSignal[] }) {
         </table>
     );
 }
+

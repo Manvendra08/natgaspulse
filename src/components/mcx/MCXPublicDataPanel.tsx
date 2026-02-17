@@ -18,6 +18,18 @@ function formatDate(value: string) {
 export default function MCXPublicDataPanel({ data }: MCXPublicDataPanelProps) {
     const recentRows = data.historical.slice(-8).reverse();
     const isPositive = data.delayedPrice.change >= 0;
+    const provider = data.sourceStatus.provider;
+    const isLiveReference = provider === 'rupeezy-active-future';
+    const sourceBadgeClass = isLiveReference
+        ? 'text-cyan-600 dark:text-cyan-400 border-cyan-500/40 bg-cyan-500/10'
+        : provider === 'mcx-official'
+            ? 'text-green-600 dark:text-green-400 border-green-500/40 bg-green-500/10'
+            : 'text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10';
+    const sourceBadgeLabel = isLiveReference
+        ? 'Live Active Future'
+        : provider === 'mcx-official'
+            ? 'Official MCX Source'
+            : 'Fallback Public Source';
 
     return (
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -26,21 +38,22 @@ export default function MCXPublicDataPanel({ data }: MCXPublicDataPanelProps) {
                     <div>
                         <h2 className="text-lg font-black text-zinc-900 dark:text-zinc-100 tracking-tight">MCX Public Data Feed</h2>
                         <p className="text-[11px] uppercase tracking-wider text-zinc-500 dark:text-zinc-400 font-bold">
-                            Delayed quote, settlement, volume and open interest
+                            {isLiveReference
+                                ? 'Active-month future price reference with settlement, volume and open interest'
+                                : 'Delayed quote, settlement, volume and open interest'}
                         </p>
                     </div>
-                    <div className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded border ${data.sourceStatus.officialAvailable
-                        ? 'text-green-600 dark:text-green-400 border-green-500/40 bg-green-500/10'
-                        : 'text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10'
-                        }`}>
-                        {data.sourceStatus.provider === 'mcx-official' ? 'Official MCX Source' : 'Fallback Public Source'}
+                    <div className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded border ${sourceBadgeClass}`}>
+                        {sourceBadgeLabel}
                     </div>
                 </div>
 
                 <div className="p-4 md:p-5">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
                         <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/50 dark:bg-zinc-900/40">
-                            <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold mb-1">Delayed Price</div>
+                            <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold mb-1">
+                                {isLiveReference ? 'Active Month Future' : 'Delayed Price'}
+                            </div>
                             <div className="text-2xl font-black text-zinc-900 dark:text-zinc-100">INR {data.delayedPrice.lastPrice.toFixed(2)}</div>
                             <div className={`text-xs font-black ${isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                                 {isPositive ? '+' : ''}{data.delayedPrice.change.toFixed(2)} ({data.delayedPrice.changePercent}%)
@@ -136,7 +149,9 @@ export default function MCXPublicDataPanel({ data }: MCXPublicDataPanelProps) {
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
                         <BarChart3 className="w-3 h-3" />
-                        Delayed by {data.sourceStatus.delayedByMinutes} minutes
+                        {data.sourceStatus.delayedByMinutes > 0
+                            ? `Delayed by ${data.sourceStatus.delayedByMinutes} minutes`
+                            : 'Live reference (no intentional delay)'}
                     </div>
                 </div>
             </div>

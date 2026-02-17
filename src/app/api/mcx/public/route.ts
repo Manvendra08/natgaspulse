@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fetchHenryHubPrices } from '@/lib/api-clients/eia';
 import type { McxPublicDataResponse, McxPricePoint } from '@/lib/types/mcx';
+import { fetchRupeezyOptionChain } from '@/lib/utils/rupeezy-option-chain';
 
 type YahooCandle = {
     time: number;
@@ -10,6 +11,14 @@ type YahooCandle = {
     close: number;
     volume: number;
 };
+
+interface ActiveFutureSnapshot {
+    symbol: string;
+    ltp: number;
+    change: number | null;
+    changePercent: number | null;
+    asOf: string;
+}
 
 function toFixedNumber(value: number, digits: number = 2) {
     return Number(value.toFixed(digits));
@@ -90,6 +99,30 @@ async function fetchYahooCandles(symbol: string, range: string, interval: string
     return candles;
 }
 
+async function fetchActiveFutureSnapshot(): Promise<ActiveFutureSnapshot | null> {
+    try {
+        const chain = await fetchRupeezyOptionChain({
+            exchange: 'MCX',
+            underlying: 'NATURALGAS',
+            maxStrikes: 6
+        });
+
+        if (!Number.isFinite(chain.futureLtp) || (chain.futureLtp ?? 0) <= 0) {
+            return null;
+        }
+
+        return {
+            symbol: chain.futureSymbol || 'NATURALGAS',
+            ltp: chain.futureLtp as number,
+            change: chain.futureChange ?? null,
+            changePercent: chain.futureChangePercent ?? null,
+            asOf: chain.fetchedAt
+        };
+    } catch {
+        return null;
+    }
+}
+
 async function tryFetchOfficialMpxSnapshot() {
     const endpoints = [
         'https://www.mcxindia.com/market-data/market-watch',
@@ -126,13 +159,13 @@ async function tryFetchOfficialMpxSnapshot() {
     return null;
 }
 
-function buildFallbackMcxSeries(candles: YahooCandle[], usdinr: number): McxPricePoint[] {
+function buildFallbackMcxSeries(candles: YahooCandle[], usdinr: number, premiumSeed: number = 24): McxPricePoint[] {
     const result: McxPricePoint[] = [];
     let previousOi = 22000;
 
     for (let i = 0; i < candles.length; i++) {
         const item = candles[i];
-        const premium = 24 + Math.sin(i / 19) * 4 + Math.cos(i / 7) * 1.5;
+        const premium = premiumSeed + Math.sin(i / 19) * 1.2 + Math.cos(i / 7) * 0.5;
 
         const open = toFixedNumber(item.open * usdinr + premium, 2);
         const high = toFixedNumber(item.high * usdinr + premium, 2);
@@ -162,6 +195,35 @@ function buildFallbackMcxSeries(candles: YahooCandle[], usdinr: number): McxPric
     return result;
 }
 
+function inferPremiumSeed(referencePrice: number | null, nymexPrice: number | null, usdinr: number): number {
+    if (!referencePrice || !nymexPrice || !Number.isFinite(referencePrice) || !Number.isFinite(nymexPrice) || usdinr <= 0) {
+        return 24;
+    }
+
+    const implied = referencePrice - (nymexPrice * usdinr);
+    if (!Number.isFinite(implied) || implied < -200 || implied > 300) {
+        return 24;
+    }
+
+    return implied;
+}
+
+function alignLatestWithReferencePrice(rows: McxPricePoint[], referencePrice: number | null): McxPricePoint[] {
+    if (!rows.length || !referencePrice || !Number.isFinite(referencePrice) || referencePrice <= 0) {
+        return rows;
+    }
+
+    const copy = rows.map((row) => ({ ...row }));
+    const lastIdx = copy.length - 1;
+    const last = copy[lastIdx];
+    last.close = toFixedNumber(referencePrice, 2);
+    last.high = Math.max(last.high, last.close, last.open);
+    last.low = Math.min(last.low, last.close, last.open);
+    last.settlement = toFixedNumber((last.high + last.low + last.close) / 3, 2);
+    copy[lastIdx] = last;
+    return copy;
+}
+
 function getRange(queryRange: string | null) {
     const supported = new Set(['6mo', '1y', '2y', '5y', '10y']);
     if (!queryRange || !supported.has(queryRange)) return '5y';
@@ -173,10 +235,11 @@ export async function GET(request: Request) {
     const range = getRange(searchParams.get('range'));
 
     try {
-        const [usdinr, dailyCandles, intradayCandles, officialPrice, eiaData] = await Promise.all([
+        const [usdinr, dailyCandles, intradayCandles, activeFuture, officialPrice, eiaData] = await Promise.all([
             fetchUsdInrRate(),
             fetchYahooCandles('NG=F', range, '1d'),
             fetchYahooCandles('NG=F', '5d', '5m'),
+            fetchActiveFutureSnapshot(),
             tryFetchOfficialMpxSnapshot(),
             fetchHenryHubPrices(520).catch(() => [])
         ]);
@@ -185,26 +248,46 @@ export async function GET(request: Request) {
             throw new Error('Insufficient market history');
         }
 
-        const historical = buildFallbackMcxSeries(dailyCandles, usdinr);
+        const quotePoint = intradayCandles.length > 4 ? intradayCandles[intradayCandles.length - 4] : intradayCandles[intradayCandles.length - 1];
+        const nymexReference = quotePoint?.close || dailyCandles[dailyCandles.length - 1].close;
+        const referencePrice = activeFuture?.ltp ?? officialPrice ?? null;
+        const premiumSeed = inferPremiumSeed(referencePrice, nymexReference, usdinr);
+
+        let historical = buildFallbackMcxSeries(dailyCandles, usdinr, premiumSeed);
+        historical = alignLatestWithReferencePrice(historical, referencePrice);
+
         const latest = historical[historical.length - 1];
         const previous = historical[historical.length - 2] || latest;
-        const quotePoint = intradayCandles.length > 4 ? intradayCandles[intradayCandles.length - 4] : intradayCandles[intradayCandles.length - 1];
 
-        const fallbackLast = toFixedNumber((quotePoint?.close || dailyCandles[dailyCandles.length - 1].close) * usdinr + 24, 2);
-        const delayedLast = officialPrice || fallbackLast;
-        const delayedChange = toFixedNumber(delayedLast - previous.close, 2);
-        const delayedPct = previous.close === 0 ? '0.00' : ((delayedChange / previous.close) * 100).toFixed(2);
-        const delayedAsOf = quotePoint ? new Date(quotePoint.time * 1000).toISOString() : latest.date;
+        const fallbackLast = toFixedNumber(nymexReference * usdinr + premiumSeed, 2);
+        const delayedLast = activeFuture?.ltp ?? officialPrice ?? fallbackLast;
+        const delayedChange = activeFuture?.change != null
+            ? toFixedNumber(activeFuture.change, 2)
+            : toFixedNumber(delayedLast - previous.close, 2);
+        const delayedPct = activeFuture?.changePercent != null
+            ? activeFuture.changePercent.toFixed(2)
+            : previous.close === 0
+                ? '0.00'
+                : ((delayedChange / previous.close) * 100).toFixed(2);
+        const delayedAsOf = activeFuture?.asOf || (quotePoint ? new Date(quotePoint.time * 1000).toISOString() : latest.date);
+        const provider = activeFuture
+            ? 'rupeezy-active-future'
+            : officialPrice !== null
+                ? 'mcx-official'
+                : 'fallback-yahoo';
+        const delayedByMinutes = provider === 'rupeezy-active-future' ? 0 : 15;
 
         const response: McxPublicDataResponse = {
             sourceStatus: {
-                officialAvailable: officialPrice !== null,
-                provider: officialPrice !== null ? 'mcx-official' : 'fallback-yahoo',
-                delayedByMinutes: 15,
+                officialAvailable: activeFuture !== null || officialPrice !== null,
+                provider,
+                delayedByMinutes,
                 lastSyncAt: new Date().toISOString(),
-                message: officialPrice !== null
-                    ? 'MCX public page parsed successfully for delayed quote.'
-                    : 'MCX official endpoint blocked/unavailable from server network. Fallback model derived from free public NG=F data.'
+                message: provider === 'rupeezy-active-future'
+                    ? `Active month future reference pulled from ${activeFuture?.symbol || 'NATURALGAS'} feed.`
+                    : provider === 'mcx-official'
+                        ? 'MCX public page parsed successfully for delayed quote.'
+                        : 'MCX official endpoint blocked/unavailable from server network. Fallback model derived from free public NG=F data.'
             },
             usdinr: toFixedNumber(usdinr, 4),
             delayedPrice: {
@@ -212,12 +295,12 @@ export async function GET(request: Request) {
                 change: delayedChange,
                 changePercent: delayedPct,
                 asOf: delayedAsOf,
-                delayMinutes: 15
+                delayMinutes: delayedByMinutes
             },
             contractSpec: {
                 symbol: 'NATURALGAS',
                 contractName: 'MCX Natural Gas Futures',
-                lotSize: '125 MMBtu',
+                lotSize: '1250 MMBtu',
                 tickSize: 'INR 0.10',
                 tickValueInr: 125,
                 marginRequirementPercent: 12.5,
