@@ -383,12 +383,23 @@ const TIMEFRAME_WEIGHTS: Record<Timeframe, number> = {
 // ─── Public API ────────────────────────────────────────────────
 
 /** Analyse a single timeframe's candles and return signals */
-export function analyzeTimeframe(timeframe: Timeframe, candles: CandleData[]): TimeframeSignal {
+export function analyzeTimeframe(
+    timeframe: Timeframe,
+    candles: CandleData[],
+    previousDayClose?: number
+): TimeframeSignal {
     const lastCandle = candles[candles.length - 1];
     const prevCandle = candles.length > 1 ? candles[candles.length - 2] : lastCandle;
     const lastPrice = lastCandle?.close || 0;
-    const priceChange = lastPrice - (prevCandle?.close || lastPrice);
-    const priceChangePercent = prevCandle?.close ? (priceChange / prevCandle.close) * 100 : 0;
+    const intervalClose = prevCandle?.close || lastPrice;
+    const referenceClose = Number.isFinite(previousDayClose as number) && (previousDayClose as number) > 0
+        ? (previousDayClose as number)
+        : intervalClose;
+
+    const priceChange = lastPrice - referenceClose;
+    const priceChangePercent = referenceClose > 0 ? (priceChange / referenceClose) * 100 : 0;
+    const intervalPriceChange = lastPrice - intervalClose;
+    const intervalPriceChangePercent = intervalClose > 0 ? (intervalPriceChange / intervalClose) * 100 : 0;
 
     const indicators = computeAllIndicators(candles);
     const signals = generateIndicatorSignals(indicators, lastPrice);
@@ -401,8 +412,11 @@ export function analyzeTimeframe(timeframe: Timeframe, candles: CandleData[]): T
         indicators,
         signals,
         lastPrice,
+        referenceClose,
         priceChange,
         priceChangePercent,
+        intervalPriceChange,
+        intervalPriceChangePercent,
         candleCount: candles.length
     };
 }
@@ -479,7 +493,7 @@ export function computeOverallSignal(
         }
     }
 
-    const intradayMomentum = ((tf1H?.priceChangePercent ?? 0) + (tf3H?.priceChangePercent ?? 0)) / 2;
+    const intradayMomentum = ((tf1H?.intervalPriceChangePercent ?? 0) + (tf3H?.intervalPriceChangePercent ?? 0)) / 2;
     if (intradayMomentum <= -1.0) {
         score -= 10;
     } else if (intradayMomentum >= 1.0) {
@@ -552,28 +566,36 @@ export function generateFuturesSetup(
         return null;
     }
 
+    const profile = resolveSetupProfile(dailySignal.timeframe);
     const resolvedDirection = resolveDirectionalLean(dailySignal, overallDirection);
     const neutralFramework = overallDirection === 'HOLD';
-    const atr = dailySignal.indicators.atr || price * 0.02;
+    const atr = dailySignal.indicators.atr || price * profile.fallbackAtrPercent;
     const ind = dailySignal.indicators;
-    const slBuffer = Math.max(atr * 0.12, price * 0.0015);
+    const slBuffer = Math.max(atr * profile.slBufferAtr, price * profile.slBufferPricePercent);
     const rationalePrefix = neutralFramework
-        ? 'Neutral aggregate score. Setup uses daily DI/EMA directional lean.'
+        ? 'Neutral aggregate score. Setup uses DI/EMA directional lean.'
         : '';
 
     if (resolvedDirection === 'BUY') {
         const entry = price;
-        const stopFallback = price - 1.4 * atr;
-        const sl = Math.min(
-            stopFallback,
-            ind.pivotS1 !== null ? ind.pivotS1 - slBuffer : stopFallback
-        );
-        const target1 = Math.max(ind.pivotR1 ?? price + 1.4 * atr, price + 1.1 * atr);
-        const target2 = Math.max(ind.pivotR2 ?? price + 2.3 * atr, target1 + 0.8 * atr);
+        const stopFallback = price - profile.stopAtr * atr;
+        const pivotStop = ind.pivotS1 !== null ? ind.pivotS1 - slBuffer : stopFallback;
+        const sl = Math.max(stopFallback, pivotStop);
+
+        const minTarget1 = price + profile.target1MinAtr * atr;
+        const capTarget1 = price + profile.target1Atr * atr;
+        const rawTarget1 = ind.pivotR1 ?? capTarget1;
+        const target1 = clamp(rawTarget1, minTarget1, capTarget1);
+
+        const minTarget2 = target1 + profile.target2StepAtr * atr;
+        const capTarget2 = price + profile.target2Atr * atr;
+        const rawTarget2 = ind.pivotR2 ?? capTarget2;
+        const target2 = clamp(rawTarget2, minTarget2, capTarget2);
         const risk = entry - sl;
         const rr = risk > 0 ? (target1 - entry) / risk : 0;
 
         return {
+            timeframe: dailySignal.timeframe,
             direction: 'BUY',
             entry: round4(entry),
             stopLoss: round4(sl),
@@ -587,17 +609,24 @@ export function generateFuturesSetup(
 
     if (resolvedDirection === 'SELL') {
         const entry = price;
-        const stopFallback = price + 1.4 * atr;
-        const sl = Math.max(
-            stopFallback,
-            ind.pivotR1 !== null ? ind.pivotR1 + slBuffer : stopFallback
-        );
-        const target1 = Math.min(ind.pivotS1 ?? price - 1.4 * atr, price - 1.1 * atr);
-        const target2 = Math.min(ind.pivotS2 ?? price - 2.3 * atr, target1 - 0.8 * atr);
+        const stopFallback = price + profile.stopAtr * atr;
+        const pivotStop = ind.pivotR1 !== null ? ind.pivotR1 + slBuffer : stopFallback;
+        const sl = Math.min(stopFallback, pivotStop);
+
+        const maxTarget1 = price - profile.target1MinAtr * atr;
+        const floorTarget1 = price - profile.target1Atr * atr;
+        const rawTarget1 = ind.pivotS1 ?? floorTarget1;
+        const target1 = clamp(rawTarget1, floorTarget1, maxTarget1);
+
+        const maxTarget2 = target1 - profile.target2StepAtr * atr;
+        const floorTarget2 = price - profile.target2Atr * atr;
+        const rawTarget2 = ind.pivotS2 ?? floorTarget2;
+        const target2 = clamp(rawTarget2, floorTarget2, maxTarget2);
         const risk = sl - entry;
         const rr = risk > 0 ? (entry - target1) / risk : 0;
 
         return {
+            timeframe: dailySignal.timeframe,
             direction: 'SELL',
             entry: round4(entry),
             stopLoss: round4(sl),
@@ -610,6 +639,74 @@ export function generateFuturesSetup(
     }
 
     return null;
+}
+
+interface SetupProfile {
+    stopAtr: number;
+    target1Atr: number;
+    target2Atr: number;
+    target1MinAtr: number;
+    target2StepAtr: number;
+    slBufferAtr: number;
+    slBufferPricePercent: number;
+    fallbackAtrPercent: number;
+}
+
+const SETUP_PROFILES: Record<Timeframe, SetupProfile> = {
+    '1H': {
+        stopAtr: 0.75,
+        target1Atr: 0.95,
+        target2Atr: 1.45,
+        target1MinAtr: 0.55,
+        target2StepAtr: 0.40,
+        slBufferAtr: 0.04,
+        slBufferPricePercent: 0.0008,
+        fallbackAtrPercent: 0.011
+    },
+    '3H': {
+        stopAtr: 0.95,
+        target1Atr: 1.20,
+        target2Atr: 1.80,
+        target1MinAtr: 0.70,
+        target2StepAtr: 0.50,
+        slBufferAtr: 0.05,
+        slBufferPricePercent: 0.0010,
+        fallbackAtrPercent: 0.013
+    },
+    '1D': {
+        stopAtr: 1.15,
+        target1Atr: 1.40,
+        target2Atr: 2.10,
+        target1MinAtr: 0.85,
+        target2StepAtr: 0.60,
+        slBufferAtr: 0.07,
+        slBufferPricePercent: 0.0012,
+        fallbackAtrPercent: 0.016
+    },
+    '1W': {
+        stopAtr: 1.30,
+        target1Atr: 1.75,
+        target2Atr: 2.60,
+        target1MinAtr: 0.95,
+        target2StepAtr: 0.65,
+        slBufferAtr: 0.08,
+        slBufferPricePercent: 0.0014,
+        fallbackAtrPercent: 0.02
+    },
+    '1M': {
+        stopAtr: 1.45,
+        target1Atr: 1.95,
+        target2Atr: 2.90,
+        target1MinAtr: 1.05,
+        target2StepAtr: 0.75,
+        slBufferAtr: 0.09,
+        slBufferPricePercent: 0.0016,
+        fallbackAtrPercent: 0.024
+    }
+};
+
+function resolveSetupProfile(timeframe: Timeframe): SetupProfile {
+    return SETUP_PROFILES[timeframe] || SETUP_PROFILES['1D'];
 }
 
 function buildFuturesRationale(tf: TimeframeSignal, dir: SignalDirection): string {
@@ -666,6 +763,12 @@ function resolveDirectionalLean(tf: TimeframeSignal, overallDirection: SignalDir
 
 function clampScore(score: number): number {
     return Math.max(-100, Math.min(100, Math.round(score)));
+}
+
+function clamp(value: number, min: number, max: number): number {
+    const lo = Math.min(min, max);
+    const hi = Math.max(min, max);
+    return Math.max(lo, Math.min(hi, value));
 }
 
 function round4(n: number): number {

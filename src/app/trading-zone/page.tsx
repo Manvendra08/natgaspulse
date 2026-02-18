@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Navbar from '@/components/layout/Navbar';
 import {
     Shield, AlertTriangle, Clock,
@@ -110,6 +110,45 @@ interface OptionChainResponse {
 }
 
 const REFRESH_INTERVAL = 30 * 60 * 1000;
+const OAUTH_PENDING_KEY = 'zerodha_oauth_pending_v1';
+
+type PendingOAuthCredentials = {
+    apiKey: string;
+    apiSecret: string;
+};
+
+function savePendingOAuthCredentials(payload: PendingOAuthCredentials) {
+    try {
+        window.sessionStorage.setItem(OAUTH_PENDING_KEY, JSON.stringify(payload));
+    } catch {
+        // Ignore storage issues.
+    }
+}
+
+function loadPendingOAuthCredentials(): PendingOAuthCredentials | null {
+    try {
+        const raw = window.sessionStorage.getItem(OAUTH_PENDING_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as PendingOAuthCredentials;
+        if (!parsed || typeof parsed.apiKey !== 'string' || typeof parsed.apiSecret !== 'string') {
+            return null;
+        }
+        return {
+            apiKey: parsed.apiKey.trim(),
+            apiSecret: parsed.apiSecret.trim()
+        };
+    } catch {
+        return null;
+    }
+}
+
+function clearPendingOAuthCredentials() {
+    try {
+        window.sessionStorage.removeItem(OAUTH_PENDING_KEY);
+    } catch {
+        // Ignore storage issues.
+    }
+}
 
 function normalizeTradingSymbol(symbol: string): string {
     return symbol.toUpperCase().replace(/\s+/g, '');
@@ -157,19 +196,48 @@ export default function TradingZone() {
     const [countdown, setCountdown] = useState(REFRESH_INTERVAL / 1000);
     const [credentials, setCredentials] = useState({ apiKey: '', apiSecret: '', accessToken: '' });
     const [loginMethod, setLoginMethod] = useState<'TOKEN' | 'OAUTH'>('OAUTH');
+    const [hasStoredApiSetup, setHasStoredApiSetup] = useState(false);
     const [isConfigured, setIsConfigured] = useState(false);
     const [isProcessingLogin, setIsProcessingLogin] = useState(false);
     const [positionView, setPositionView] = useState<'COMPACT' | 'DETAILED'>('COMPACT');
+    const oauthAbortRef = useRef<AbortController | null>(null);
+
+    const loadCredentialsFromProfile = useCallback(async () => {
+        try {
+            const res = await fetch('/api/profile/zerodha', { cache: 'no-store' });
+            const json = await res.json().catch(() => null);
+            return { ok: res.ok, payload: json };
+        } catch {
+            return { ok: false, payload: null };
+        }
+    }, []);
 
     useEffect(() => {
-        const saved = localStorage.getItem('zerodha_credentials');
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            setCredentials(parsed);
-            if (parsed.accessToken && parsed.apiKey) {
-                setIsConfigured(true);
+        (async () => {
+            const { ok, payload } = await loadCredentialsFromProfile();
+            if (!ok) {
+                if (payload?.error) setError(String(payload.error));
+                return;
             }
-        }
+            if (payload?.warning) {
+                setError(String(payload.warning));
+            }
+            const saved = payload?.credentials;
+            if (saved) {
+                const merged = {
+                    apiKey: saved.apiKey || '',
+                    apiSecret: saved.apiSecret || '',
+                    accessToken: saved.accessToken || ''
+                };
+                setCredentials(merged);
+                if (merged.apiKey && merged.apiSecret) {
+                    setHasStoredApiSetup(true);
+                }
+                if (merged.accessToken && merged.apiKey) {
+                    setIsConfigured(true);
+                }
+            }
+        })();
 
         const params = new URLSearchParams(window.location.search);
         const requestToken = params.get('request_token');
@@ -179,28 +247,56 @@ export default function TradingZone() {
             handleOAuthCallback(requestToken);
         } else if (status === 'error') {
             setError('Login failed or was cancelled by user.');
+            clearPendingOAuthCredentials();
             window.history.replaceState({}, document.title, window.location.pathname);
         }
-    }, []);
+    }, [loadCredentialsFromProfile]);
 
     const handleOAuthCallback = async (requestToken: string) => {
         setIsProcessingLogin(true);
         setError(null);
 
-        const tempCreds = localStorage.getItem('zerodha_temp_creds');
-        if (!tempCreds) {
-            setError('Session expired. Please start login again.');
+        let apiKey = '';
+        let apiSecret = '';
+        let profileWarning = '';
+        let usedPendingCredentials = false;
+        const profileResult = await loadCredentialsFromProfile();
+        const profileJson = profileResult.payload;
+        apiKey = String(profileJson?.credentials?.apiKey || '');
+        apiSecret = String(profileJson?.credentials?.apiSecret || '');
+        profileWarning = String(profileJson?.warning || '');
+
+        if (!apiKey || !apiSecret) {
+            const pending = loadPendingOAuthCredentials();
+            if (pending) {
+                apiKey = pending.apiKey;
+                apiSecret = pending.apiSecret;
+                usedPendingCredentials = true;
+            }
+        }
+
+        if (!apiKey || !apiSecret) {
+            setError(
+                profileWarning ||
+                    'Missing API Key/Secret in profile. Please enter credentials and start login again.'
+            );
             setIsProcessingLogin(false);
             return;
         }
 
-        const { apiKey, apiSecret } = JSON.parse(tempCreds);
-
         try {
+            oauthAbortRef.current?.abort();
+            const controller = new AbortController();
+            oauthAbortRef.current = controller;
             const res = await fetch('/api/auth/zerodha', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ apiKey, apiSecret, requestToken })
+                body: JSON.stringify(
+                    usedPendingCredentials
+                        ? { requestToken, apiKey, apiSecret }
+                        : { requestToken }
+                ),
+                signal: controller.signal
             });
 
             const response = await res.json();
@@ -210,47 +306,126 @@ export default function TradingZone() {
 
             const newCreds = { apiKey, apiSecret, accessToken: response.accessToken };
             setCredentials(newCreds);
-            localStorage.setItem('zerodha_credentials', JSON.stringify(newCreds));
-            localStorage.removeItem('zerodha_temp_creds');
+            if (apiKey && apiSecret) {
+                setHasStoredApiSetup(true);
+            }
+
+            const saveRes = await fetch('/api/profile/zerodha', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ credentials: newCreds })
+            });
+            if (!saveRes.ok) {
+                const saveJson = await saveRes.json().catch(() => null);
+                setError(
+                    saveJson?.error ||
+                        'Connected to Zerodha, but failed to persist credentials on server.'
+                );
+            }
+
             setIsConfigured(true);
+            clearPendingOAuthCredentials();
             window.history.replaceState({}, document.title, window.location.pathname);
             fetchPositions();
         } catch (err: any) {
-            console.error(err);
-            setError(err.message || 'Login failed during token exchange');
+            if (err?.name === 'AbortError') {
+                setError('Login aborted.');
+            } else {
+                console.error(err);
+                setError(err.message || 'Login failed during token exchange');
+            }
         } finally {
             setIsProcessingLogin(false);
         }
     };
 
-    const handleLoginRedirect = () => {
-        if (!credentials.apiKey || !credentials.apiSecret) {
-            setError('API Key and API Secret are required for login.');
+    const handleLoginRedirect = async () => {
+        setError(null);
+        let apiKey = credentials.apiKey.trim();
+        let apiSecret = credentials.apiSecret.trim();
+
+        if (!apiKey || !apiSecret) {
+            const profileResult = await loadCredentialsFromProfile();
+            apiKey = apiKey || String(profileResult.payload?.credentials?.apiKey || '').trim();
+            apiSecret = apiSecret || String(profileResult.payload?.credentials?.apiSecret || '').trim();
+        }
+
+        if (!apiKey || !apiSecret) {
+            setError('API Key and API Secret are required for one-time setup.');
             return;
         }
 
-        localStorage.setItem('zerodha_temp_creds', JSON.stringify({
-            apiKey: credentials.apiKey,
-            apiSecret: credentials.apiSecret
-        }));
+        savePendingOAuthCredentials({ apiKey, apiSecret });
+
+        // Persist key/secret to the signed-in user profile before redirecting.
+        try {
+            const saveRes = await fetch('/api/profile/zerodha', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ credentials: { apiKey, apiSecret } })
+            });
+            if (!saveRes.ok) {
+                const saveJson = await saveRes.json().catch(() => null);
+                setError(saveJson?.error || 'Failed to save API credentials to profile.');
+                return;
+            }
+            setHasStoredApiSetup(true);
+            setCredentials((prev) => ({ ...prev, apiKey, apiSecret }));
+        } catch {
+            setError('Failed to save API credentials to profile.');
+            return;
+        }
 
         const redirectUrl = window.location.origin + window.location.pathname;
-        const loginUrl = `https://kite.zerodha.com/connect/login?v=3&api_key=${credentials.apiKey}&redirect_params=${encodeURIComponent(`redirect_url=${redirectUrl}`)}`;
+        const loginUrl = `https://kite.zerodha.com/connect/login?v=3&api_key=${apiKey}&redirect_params=${encodeURIComponent(`redirect_url=${redirectUrl}`)}`;
         window.location.href = loginUrl;
     };
 
-    const handleManualConfigure = () => {
-        if (credentials.apiKey && credentials.accessToken) {
-            setIsConfigured(true);
-            localStorage.setItem('zerodha_credentials', JSON.stringify(credentials));
-            fetchPositions();
+    const handleManualConfigure = async () => {
+        setError(null);
+        const accessToken = credentials.accessToken.trim();
+        if (!accessToken) {
+            setError('Access token is required.');
+            return;
         }
+
+        let apiKey = credentials.apiKey.trim();
+        let apiSecret = credentials.apiSecret.trim();
+        if (!apiKey || !apiSecret) {
+            const profileResult = await loadCredentialsFromProfile();
+            apiKey = apiKey || String(profileResult.payload?.credentials?.apiKey || '').trim();
+            apiSecret = apiSecret || String(profileResult.payload?.credentials?.apiSecret || '').trim();
+        }
+
+        if (!apiKey) {
+            setError('API Key not found in profile. Complete one-time API setup first.');
+            return;
+        }
+
+        const newCreds = { apiKey, apiSecret, accessToken };
+        setCredentials(newCreds);
+        setIsConfigured(true);
+        if (apiKey && apiSecret) {
+            setHasStoredApiSetup(true);
+        }
+        fetch('/api/profile/zerodha', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credentials: newCreds })
+        }).catch(() => null);
+        fetchPositions();
     };
 
     const handleLogout = () => {
         setIsConfigured(false);
+        setHasStoredApiSetup(false);
         setCredentials(prev => ({ ...prev, accessToken: '' }));
-        localStorage.removeItem('zerodha_credentials');
+        clearPendingOAuthCredentials();
+        fetch('/api/profile/zerodha', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credentials: {} })
+        }).catch(() => null);
         setData(null);
         setOptionChain(null);
         setOptionChainWarning(null);
@@ -258,7 +433,7 @@ export default function TradingZone() {
     };
 
     const fetchPositions = useCallback(async () => {
-        const currentCreds = JSON.parse(localStorage.getItem('zerodha_credentials') || '{}');
+        const currentCreds = credentials;
         if (!currentCreds.apiKey || !currentCreds.accessToken) {
             return;
         }
@@ -277,7 +452,7 @@ export default function TradingZone() {
                 fetch('/api/positions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(currentCreds)
+                    body: JSON.stringify({ apiKey: currentCreds.apiKey, accessToken: currentCreds.accessToken })
                 }),
                 fetch('/api/option-chain', {
                     method: 'POST',
@@ -312,7 +487,7 @@ export default function TradingZone() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [credentials]);
 
     useEffect(() => {
         if (!isConfigured) return;
@@ -338,6 +513,17 @@ export default function TradingZone() {
                         <RefreshCw className="w-12 h-12 text-violet-500 animate-spin mx-auto" />
                         <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">Logging in to Zerodha...</h2>
                         <p className="text-zinc-500">Exchanging request token for access token</p>
+                        <button
+                            onClick={() => {
+                                oauthAbortRef.current?.abort();
+                                setIsProcessingLogin(false);
+                                setError('Login aborted.');
+                                window.history.replaceState({}, document.title, window.location.pathname);
+                            }}
+                            className="mx-auto mt-2 px-4 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 font-bold hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+                        >
+                            Cancel
+                        </button>
                     </div>
                 </div>
             </div>
@@ -381,31 +567,40 @@ export default function TradingZone() {
                                 </div>
                             )}
                             <div className="space-y-4">
-                                <div>
-                                    <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">API Key</label>
-                                    <input
-                                        type="text"
-                                        value={credentials.apiKey}
-                                        onChange={(e) => setCredentials({ ...credentials, apiKey: e.target.value })}
-                                        className="w-full px-4 py-3 bg-slate-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-violet-500 transition font-mono text-sm"
-                                        placeholder="Enter API Key"
-                                    />
-                                </div>
                                 {loginMethod === 'OAUTH' ? (
                                     <>
-                                        <div>
-                                            <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">API Secret</label>
-                                            <input
-                                                type="password"
-                                                value={credentials.apiSecret}
-                                                onChange={(e) => setCredentials({ ...credentials, apiSecret: e.target.value })}
-                                                className="w-full px-4 py-3 bg-slate-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-violet-500 transition font-mono text-sm"
-                                                placeholder="Enter API Secret"
-                                            />
-                                        </div>
+                                        {hasStoredApiSetup ? (
+                                            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+                                                <p className="text-xs font-bold text-emerald-400 uppercase tracking-wider">One-time setup completed</p>
+                                                <p className="text-xs text-zinc-500 mt-1">Saved API key/secret will be used automatically.</p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-4">
+                                                <div>
+                                                    <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">API Key</label>
+                                                    <input
+                                                        type="text"
+                                                        value={credentials.apiKey}
+                                                        onChange={(e) => setCredentials({ ...credentials, apiKey: e.target.value })}
+                                                        className="w-full px-4 py-3 bg-slate-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-violet-500 transition font-mono text-sm"
+                                                        placeholder="Enter API Key"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">API Secret</label>
+                                                    <input
+                                                        type="password"
+                                                        value={credentials.apiSecret}
+                                                        onChange={(e) => setCredentials({ ...credentials, apiSecret: e.target.value })}
+                                                        className="w-full px-4 py-3 bg-slate-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-violet-500 transition font-mono text-sm"
+                                                        placeholder="Enter API Secret"
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
                                         <button
                                             onClick={handleLoginRedirect}
-                                            disabled={!credentials.apiKey || !credentials.apiSecret}
+                                            disabled={!hasStoredApiSetup && (!credentials.apiKey || !credentials.apiSecret)}
                                             className="w-full px-6 py-3 bg-violet-600 hover:bg-violet-500 text-white disabled:bg-zinc-100 disabled:text-zinc-700 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500 font-bold rounded-lg transition flex items-center justify-center gap-2 mt-2"
                                         >
                                             <Zap className="w-4 h-4 fill-current" />
@@ -417,6 +612,23 @@ export default function TradingZone() {
                                     </>
                                 ) : (
                                     <>
+                                        {hasStoredApiSetup ? (
+                                            <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-4 py-3">
+                                                <p className="text-xs font-bold text-cyan-400 uppercase tracking-wider">Token-only login enabled</p>
+                                                <p className="text-xs text-zinc-500 mt-1">API details will be fetched from your profile automatically.</p>
+                                            </div>
+                                        ) : (
+                                            <div>
+                                                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">API Key</label>
+                                                <input
+                                                    type="text"
+                                                    value={credentials.apiKey}
+                                                    onChange={(e) => setCredentials({ ...credentials, apiKey: e.target.value })}
+                                                    className="w-full px-4 py-3 bg-slate-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-violet-500 transition font-mono text-sm"
+                                                    placeholder="Enter API Key (one-time setup required)"
+                                                />
+                                            </div>
+                                        )}
                                         <div>
                                             <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">Access Token</label>
                                             <input
@@ -429,13 +641,24 @@ export default function TradingZone() {
                                         </div>
                                         <button
                                             onClick={handleManualConfigure}
-                                            disabled={!credentials.apiKey || !credentials.accessToken}
+                                            disabled={!credentials.accessToken || (!hasStoredApiSetup && !credentials.apiKey)}
                                             className="w-full px-6 py-3 bg-zinc-100 dark:bg-zinc-800 hover:bg-white dark:hover:bg-zinc-700 text-zinc-900 dark:text-zinc-100 disabled:bg-zinc-100 disabled:text-zinc-700 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500 font-bold rounded-lg transition mt-2"
                                         >
                                             Connect Manually
                                         </button>
                                     </>
                                 )}
+
+                                <button
+                                    onClick={() => {
+                                        oauthAbortRef.current?.abort();
+                                        setError(null);
+                                        window.location.href = '/';
+                                    }}
+                                    className="w-full px-6 py-3 bg-transparent border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold rounded-lg transition hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                                >
+                                    Cancel
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -487,7 +710,7 @@ export default function TradingZone() {
                                 <button onClick={fetchPositions} disabled={loading} className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition disabled:opacity-50">
                                     <RefreshCw className={`w-4 h-4 text-zinc-700 dark:text-zinc-400 ${loading ? 'animate-spin' : ''}`} />
                                 </button>
-                                <button onClick={() => { setIsConfigured(false); localStorage.removeItem('zerodha_credentials'); }} className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition">
+                                <button onClick={() => setIsConfigured(false)} className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition">
                                     <Settings className="w-4 h-4 text-zinc-700 dark:text-zinc-400" />
                                 </button>
                             </div>
@@ -583,17 +806,35 @@ export default function TradingZone() {
                             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 grid grid-cols-1 md:grid-cols-[1fr_auto] items-center gap-3">
                                 <div>
                                     <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
-                                        Natural Gas {getFutureMonthLabel(optionChain?.selectedExpiry || null)}
+                                        Positions Overview
                                     </div>
-                                    <div className="flex items-baseline gap-2 mt-0.5">
-                                        <span className="text-lg font-black text-zinc-900 dark:text-zinc-100">
-                                            Rs {optionChain?.futureLtp != null ? optionChain.futureLtp.toFixed(2) : '-'}
-                                        </span>
-                                        {optionChain?.futureChange != null && optionChain?.futureChangePercent != null && (
-                                            <span className={`text-xs font-bold ${optionChain.futureChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                                {formatSigned(optionChain.futureChange, 2)} ({formatSigned(optionChain.futureChangePercent, 2)}%)
-                                            </span>
-                                        )}
+                                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                                        {(() => {
+                                            const openPositions = data.positions.filter((p) => (p.quantity || 0) !== 0);
+                                            const openCount = openPositions.length;
+                                            const profitCount = openPositions.filter((p) => (p.pnl || 0) > 0).length;
+                                            const lossCount = openPositions.filter((p) => (p.pnl || 0) < 0).length;
+
+                                            return (
+                                                <>
+                                                    <span className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700">
+                                                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Open</span>
+                                                        <span className="text-sm font-black text-zinc-900 dark:text-zinc-100">{openCount}</span>
+                                                    </span>
+                                                    <span className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                                                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">In Profit</span>
+                                                        <span className="text-sm font-black text-emerald-400">{profitCount}</span>
+                                                    </span>
+                                                    <span className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-red-500/10 border border-red-500/20">
+                                                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">In Loss</span>
+                                                        <span className="text-sm font-black text-red-400">{lossCount}</span>
+                                                    </span>
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                    <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider mt-2">
+                                        Contract: Natural Gas {getFutureMonthLabel(optionChain?.selectedExpiry || null)}
                                     </div>
                                 </div>
                                 <div className="inline-flex rounded-lg border border-zinc-300 dark:border-zinc-700 overflow-hidden">
@@ -773,7 +1014,7 @@ function PositionCard({
     if (compact) {
         return (
             <div className={`bg-white dark:bg-zinc-900 border rounded-xl p-3 ${riskColors[position.riskLevel]}`}>
-                <div className="grid grid-cols-1 lg:grid-cols-[1.8fr_1.1fr_auto] gap-3 items-start lg:items-center">
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3 items-start lg:items-center">
                     <div className="min-w-0">
                         <div className="flex items-center gap-2 min-w-0">
                             <h3 className="text-sm md:text-base font-black text-zinc-900 dark:text-zinc-100 truncate">{position.symbol}</h3>
@@ -795,18 +1036,6 @@ function PositionCard({
                             <span>Avg <span className="font-bold text-zinc-700 dark:text-zinc-300">Rs {position.avgPrice.toFixed(2)}</span></span>
                             <span>LTP <span className="font-bold text-zinc-700 dark:text-zinc-300">Rs {position.ltp.toFixed(2)}</span></span>
                         </div>
-                    </div>
-
-                    <div className="text-[11px] bg-zinc-100 dark:bg-zinc-800/60 border border-zinc-300 dark:border-zinc-700 rounded-lg p-2 min-h-[72px]">
-                        <div className="text-zinc-500">Alerts</div>
-                        {primaryAlert ? (
-                            <>
-                                <div className="font-black text-zinc-700 dark:text-zinc-200 mt-0.5">{primaryAlert.action}</div>
-                                <div className="text-zinc-600 dark:text-zinc-400 line-clamp-2">{primaryAlert.reason}</div>
-                            </>
-                        ) : (
-                            <div className="font-bold text-zinc-500 mt-1">No active alerts</div>
-                        )}
                     </div>
 
                     <div className="w-full lg:w-auto lg:justify-self-end text-left lg:text-right">

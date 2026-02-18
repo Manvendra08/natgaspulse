@@ -1,21 +1,99 @@
 'use client';
 
-import { Activity, Clock, Sun, Moon } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Activity, Clock, Sun, Moon, User, LogOut, ArrowLeft } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTheme } from '@/components/providers/ThemeProvider';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { createSupabaseBrowserClient } from '@/lib/supabase/browser';
+
+const PUBLIC_PATH_PREFIXES = ['/', '/login', '/signup', '/forgot', '/auth/reset', '/auth/callback'];
+
+function resolveUserName(user: any): string {
+    const raw =
+        user?.user_metadata?.username ||
+        user?.user_metadata?.full_name ||
+        user?.user_metadata?.name ||
+        user?.user_metadata?.preferred_username ||
+        '';
+    const normalized = String(raw || '').trim();
+    if (normalized) return normalized;
+    const email = String(user?.email || '').trim();
+    if (email.includes('@')) return email.split('@')[0];
+    return email || 'User';
+}
+
+function isPublicPath(pathname: string): boolean {
+    if (pathname === '/') return true;
+    return PUBLIC_PATH_PREFIXES.some((base) => base !== '/' && (pathname === base || pathname.startsWith(`${base}/`)));
+}
 
 export default function Navbar() {
     const [currentTime, setCurrentTime] = useState<Date | null>(null);
     const { theme, toggleTheme } = useTheme();
     const pathname = usePathname();
+    const router = useRouter();
+    const [isAuthed, setIsAuthed] = useState<boolean>(false);
+    const [authResolved, setAuthResolved] = useState<boolean>(false);
+    const [userName, setUserName] = useState<string>('');
 
     useEffect(() => {
         setCurrentTime(new Date());
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
         return () => clearInterval(timer);
     }, []);
+
+    useEffect(() => {
+        let mounted = true;
+        try {
+            const s = createSupabaseBrowserClient();
+            const syncUserState = async (user: any) => {
+                if (!mounted) return;
+                setIsAuthed(Boolean(user));
+                setUserName(resolveUserName(user));
+                setAuthResolved(true);
+                if (!user) return;
+                try {
+                    const profileRes = await fetch('/api/profile', { cache: 'no-store' });
+                    const profileJson = await profileRes.json().catch(() => null);
+                    const profileName = String(profileJson?.profile?.fullName || '').trim();
+                    if (mounted && profileName) {
+                        setUserName(profileName);
+                    }
+                } catch {
+                    // Ignore profile lookup issues.
+                }
+            };
+
+            s.auth.getUser().then(({ data }) => {
+                syncUserState(data.user);
+            });
+
+            const { data: sub } = s.auth.onAuthStateChange((_evt, session) => {
+                syncUserState(session?.user);
+            });
+
+            return () => {
+                mounted = false;
+                sub.subscription.unsubscribe();
+            };
+        } catch {
+            // If env vars are missing, behave as logged out.
+            setIsAuthed(false);
+            setAuthResolved(true);
+            setUserName('');
+            return () => {
+                mounted = false;
+            };
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!authResolved) return;
+        if (isAuthed) return;
+        if (isPublicPath(pathname)) return;
+        router.replace('/');
+    }, [authResolved, isAuthed, pathname, router]);
 
     const formattedTime = currentTime ? currentTime.toLocaleTimeString('en-US', {
         hour: '2-digit',
@@ -29,7 +107,20 @@ export default function Navbar() {
         year: 'numeric'
     }) : '---';
 
-    const navItems = [
+    const supabase = useMemo(() => {
+        try {
+            return createSupabaseBrowserClient();
+        } catch {
+            return null;
+        }
+    }, []);
+
+    const publicNavItems = [
+        { href: '/', label: 'Home' },
+        { href: '/#plans', label: 'Plans' }
+    ];
+
+    const premiumNavItems = [
         { href: '/', label: 'Home' },
         { href: '/dashboard', label: 'Dashboard' },
         { href: '/signals', label: 'Signals' },
@@ -37,6 +128,8 @@ export default function Navbar() {
         { href: '/forecaster', label: 'Forecaster' },
         { href: '/trading-zone', label: 'Trading Zone' }
     ];
+
+    const navItems = isAuthed ? premiumNavItems : publicNavItems;
 
     return (
         <nav className="h-16 border-b border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-sm flex items-center px-4 md:px-6 justify-between sticky top-0 z-50">
@@ -49,7 +142,8 @@ export default function Navbar() {
                 </div>
                 <div className="flex items-center gap-1 md:gap-2">
                     {navItems.map((item) => {
-                        const isActive = pathname === item.href;
+                        const isPlansLink = item.href === '/#plans';
+                        const isActive = isPlansLink ? pathname === '/' : pathname === item.href;
                         return (
                             <Link
                                 key={item.href}
@@ -76,6 +170,67 @@ export default function Navbar() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    {pathname === '/' && !isAuthed && (
+                        <div className="flex items-center gap-2">
+                            <Link
+                                href="/login"
+                                className="px-3 py-1.5 rounded-lg bg-zinc-900 text-white text-xs font-black border border-zinc-800 hover:bg-zinc-800 transition"
+                            >
+                                Log In
+                            </Link>
+                            <Link
+                                href="/signup"
+                                className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-black border border-emerald-500/30 hover:bg-emerald-500 transition"
+                            >
+                                Sign Up
+                            </Link>
+                        </div>
+                    )}
+
+                    {isAuthed && (
+                        <div className="relative hidden sm:block">
+                            <details className="group">
+                                <summary className="list-none cursor-pointer px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 text-xs font-black hover:bg-zinc-200 dark:hover:bg-zinc-800 transition inline-flex items-center gap-2">
+                                    <User className="w-4 h-4" />
+                                    Profile
+                                </summary>
+                                <div className="absolute right-0 mt-2 w-64 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-2xl p-3 z-50">
+                                    <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Signed In</div>
+                                    <div className="text-sm font-bold text-zinc-700 dark:text-zinc-300 mt-1">
+                                        {userName || 'User'}
+                                    </div>
+                                    <div className="h-px bg-zinc-200 dark:bg-zinc-800 my-3" />
+                                    <button
+                                        onClick={() => router.back()}
+                                        className="w-full px-3 py-2 rounded-lg text-sm font-bold text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-900 inline-flex items-center gap-2"
+                                    >
+                                        <ArrowLeft className="w-4 h-4" />
+                                        Go Back
+                                    </button>
+                                    <Link
+                                        href="/profile"
+                                        className="block px-3 py-2 rounded-lg text-sm font-bold text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                                    >
+                                        Profile
+                                    </Link>
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                if (supabase) await supabase.auth.signOut();
+                                            } catch {
+                                                // ignore
+                                            }
+                                            router.push('/');
+                                        }}
+                                        className="w-full mt-2 px-3 py-2 rounded-lg text-sm font-black bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500/15 transition inline-flex items-center gap-2 justify-center"
+                                    >
+                                        <LogOut className="w-4 h-4" />
+                                        Log Out
+                                    </button>
+                                </div>
+                            </details>
+                        </div>
+                    )}
                     <button
                         onClick={toggleTheme}
                         className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
@@ -84,10 +239,12 @@ export default function Navbar() {
                         {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
                     </button>
 
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-full">
-                        <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse-glow" />
-                        <span className="text-[10px] md:text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase">LIVE</span>
-                    </div>
+                    {isAuthed && (
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-full">
+                            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse-glow" />
+                            <span className="text-[10px] md:text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase">LIVE</span>
+                        </div>
+                    )}
                 </div>
             </div>
         </nav>

@@ -26,22 +26,22 @@ The bot suggests 5 types of actions:
 ### 4. **Recommendation Logic**
 
 #### Exit Triggers
-- Loss > 15% → Immediate exit
-- Loss > 10% + Adverse trend → Hedge or reduce
+- Loss > 15% -> Immediate exit
+- Loss > 10% + adverse trend -> Hedge or reduce
 
 #### Profit Taking
-- Profit > 20% → Book 50% profits
-- Profit > 10% → Trail stop-loss at breakeven
+- Profit > 20% -> Book 50% profits
+- Profit > 10% -> Trail stop-loss at breakeven
 
 #### Trend Analysis
-- Long position + Bearish trend → Reduce exposure
-- Short position + Bullish trend → Cover shorts
-- Favorable trend + 5-15% profit → Add to winners
+- Long position + bearish trend -> Reduce exposure
+- Short position + bullish trend -> Cover shorts
+- Favorable trend + 5-15% profit -> Add to winners
 
 #### Technical Indicators
-- RSI > 75 (Long) → Reduce 30%
-- RSI < 25 (Short) → Cover 30%
-- High volatility → Tighten stops or hedge
+- RSI > 75 (long) -> Reduce 30%
+- RSI < 25 (short) -> Cover 30%
+- High volatility -> Tighten stops or hedge
 
 ### 5. **Auto-Refresh**
 - Reviews positions every **30 minutes**
@@ -60,13 +60,13 @@ You need to complete the OAuth flow to get an access token:
 
 ```bash
 # Login URL format
-https://kite.zerodha.com/connect/login?api_key=YOUR_API_KEY&redirect_params=http://localhost:3000/trading-zone
+https://kite.zerodha.com/connect/login?api_key=YOUR_API_KEY&redirect_params=http://localhost:3001/trading-zone
 ```
 
 After login, Zerodha will redirect with a `request_token`. Exchange it for an `access_token`:
 
 ```javascript
-// Use the /api/auth/zerodha endpoint (to be implemented)
+// Use the /api/auth/zerodha endpoint
 POST /api/auth/zerodha
 {
   "request_token": "...",
@@ -160,15 +160,15 @@ Fetches and analyzes Zerodha positions.
 
 ```
 Trading Zone Page (Client)
-    ↓
+    |
 POST /api/positions
-    ↓
-Zerodha API Client → Fetch Positions
-    ↓
-Signal API → Fetch Market Condition
-    ↓
-Position Analyzer → Generate Recommendations
-    ↓
+    |
+Zerodha API Client -> Fetch Positions
+    |
+Signal API -> Fetch Market Condition
+    |
+Position Analyzer -> Generate Recommendations
+    |
 Response to Client
 ```
 

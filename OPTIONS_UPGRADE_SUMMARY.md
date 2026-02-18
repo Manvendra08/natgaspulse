@@ -7,15 +7,18 @@
     - Detects **Open Interest (OI) Support & Resistance** levels dynamically.
 
 2.  **Hybrid Data Source**:
-    - **Primary**: Attempts to fetch live Option Chain from **Dhan.co** (Scraping).
-    - **Fallback**: If scraping is blocked, it generates a **Simulated Chain** based on the official Live Future Price and standard market models (Black-Scholes + Bell Curve OI distribution).
-    - This ensures you *always* have actionable data, centered on the real market price.
+    - **Primary**: Pulls a live option chain from **Rupeezy public endpoints** (with LTP/OI enrichment when available).
+    - **Fallback**: If live chain fetch is blocked/unavailable, it generates a **deterministic simulated chain** centered on the current futures price.
+    - This ensures you always have actionable data, centered on the same price reference used by the Signal Bot.
 
 3.  **Enhanced Recommendations**:
-    - "Buy/Sell" advice now explicitly references OI levels (e.g., "Sell Call at ₹310 due to High OI Resistance").
+    - "Buy/Sell" advice now explicitly references OI levels (e.g., "Sell Call at Rs 310 due to High OI Resistance").
     - Visual indicators for PCR and Max Pain added to the Options Advisor card.
 
 ## Status
 - **Analysis**: Active.
 - **Data Source**: Auto-switching (Live / Simulated).
 - **Dashboard**: Updated with new metrics.
+
+## Notes
+- The Signal Bot's percent change baseline uses the previous day's close when available.

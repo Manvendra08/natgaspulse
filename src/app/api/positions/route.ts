@@ -18,7 +18,7 @@ export async function POST(request: Request) {
         const positions = await fetchZerodhaPositions({ apiKey, accessToken });
 
         // Fetch current market condition (from existing signal API)
-        const marketCondition = await fetchMarketCondition();
+        const marketCondition = await fetchMarketCondition(request.url, request.headers.get('cookie'));
 
         // Analyze positions and generate recommendations
         const analysis = await analyzePositions(positions, marketCondition);
@@ -41,12 +41,13 @@ export async function POST(request: Request) {
 /**
  * Fetch current market condition from Signal API
  */
-async function fetchMarketCondition(): Promise<MarketCondition> {
+async function fetchMarketCondition(requestUrl: string, cookieHeader?: string | null): Promise<MarketCondition> {
     try {
-        // Call internal signal API
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
-        const response = await fetch(`${baseUrl}/api/signals`, {
-            cache: 'no-store'
+        // Call internal signal API while forwarding caller auth cookies.
+        const signalApiUrl = new URL('/api/signals', requestUrl).toString();
+        const response = await fetch(signalApiUrl, {
+            cache: 'no-store',
+            headers: cookieHeader ? { cookie: cookieHeader } : undefined
         });
 
         if (!response.ok) {

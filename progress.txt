@@ -1,0 +1,10 @@
+# Progress Tracker - Natural Gas Dashboard Upgrades
+
+- [x] Validated current state and updated PRD.md
+- [x] Task [verify_dhan_client]: Verify Dhan API Client
+- [ ] Task [integrate_dhan_provider]: Integrate Dhan Provider
+- [ ] Task [dhan_auth_bridge]: Dhan Auth Bridge
+- [ ] Task [refine_greeks_calc]: Refine Greeks Calculation
+- [ ] Task [create_option_chain_widget]: Create Option Chain Explorer
+- [ ] Task [ui_source_selector]: Source Selector UI
+- [ ] Task [validate_pnl_sensitivity]: Validate P&L Sensitivity

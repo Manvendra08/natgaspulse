@@ -17,7 +17,9 @@ export const revalidate = 0;
 type PriceSource = 'Rupeezy Active Future' | 'MCX Official' | 'Derived (NYMEX * USDINR)';
 
 interface ActiveFutureSnapshot {
+    symbol: string;
     ltp: number;
+    previousClose: number | null;
     change: number | null;
     changePercent: number | null;
 }
@@ -59,9 +61,10 @@ async function fetchCandles(symbol: string, interval: string, range: string): Pr
 
 function aggregateTo3H(candles1H: CandleData[]): CandleData[] {
     const result: CandleData[] = [];
-    for (let i = 0; i < candles1H.length; i += 3) {
+    const startIndex = candles1H.length % 3;
+    for (let i = startIndex; i < candles1H.length; i += 3) {
         const chunk = candles1H.slice(i, i + 3);
-        if (chunk.length === 0) {
+        if (chunk.length < 3) {
             continue;
         }
         result.push({
@@ -103,10 +106,23 @@ async function fetchActiveFutureSnapshot(): Promise<ActiveFutureSnapshot | null>
             return null;
         }
 
+        const previousClose = Number.isFinite(chain.futureClose) && (chain.futureClose ?? 0) > 0
+            ? (chain.futureClose as number)
+            : null;
+        const changeFromClose = previousClose != null
+            ? (chain.futureLtp as number) - previousClose
+            : null;
+        const change = changeFromClose ?? chain.futureChange ?? null;
+        const changePercent = previousClose != null
+            ? (((chain.futureLtp as number) - previousClose) / previousClose) * 100
+            : chain.futureChangePercent ?? null;
+
         return {
+            symbol: chain.futureSymbol || 'NATURALGAS',
             ltp: chain.futureLtp as number,
-            change: chain.futureChange ?? null,
-            changePercent: chain.futureChangePercent ?? null
+            previousClose,
+            change,
+            changePercent
         };
     } catch {
         return null;
@@ -187,17 +203,15 @@ function injectLatestPrice(candles: CandleData[], livePrice: number | null): Can
 
 export async function GET() {
     try {
-        const [candles1H, candles1D, candles1W, candles1M, usdinr, activeSnapshot, officialMcxPrice] = await Promise.all([
+        const [candles1H, candles1D, usdinr, activeSnapshot, officialMcxPrice] = await Promise.all([
             fetchCandles('NG=F', '1h', '30d'),
             fetchCandles('NG=F', '1d', '1y'),
-            fetchCandles('NG=F', '1wk', '5y'),
-            fetchCandles('NG=F', '1mo', '10y'),
             fetchUsdInrRate(),
             fetchActiveFutureSnapshot(),
             tryFetchOfficialMpxSnapshot()
         ]);
 
-        if (!candles1H.length || !candles1D.length || !candles1W.length || !candles1M.length) {
+        if (!candles1H.length || !candles1D.length) {
             throw new Error('Insufficient candle data to generate signal');
         }
 
@@ -217,41 +231,49 @@ export async function GET() {
 
         let mcx1H = convertToMcx(candles1H, usdinr, premium);
         let mcx1D = convertToMcx(candles1D, usdinr, premium);
-        let mcx1W = convertToMcx(candles1W, usdinr, premium);
-        let mcx1M = convertToMcx(candles1M, usdinr, premium);
 
         mcx1H = injectLatestPrice(mcx1H, anchorPrice);
         mcx1D = injectLatestPrice(mcx1D, anchorPrice);
-        mcx1W = injectLatestPrice(mcx1W, anchorPrice);
-        mcx1M = injectLatestPrice(mcx1M, anchorPrice);
 
         const mcx3H = aggregateTo3H(mcx1H);
+        const previousClose = activeSnapshot?.previousClose
+            ?? (mcx1D.length > 1 ? mcx1D[mcx1D.length - 2].close : null);
 
         const tfMap: [Timeframe, CandleData[]][] = [
             ['1H', mcx1H],
             ['3H', mcx3H],
-            ['1D', mcx1D],
-            ['1W', mcx1W],
-            ['1M', mcx1M]
+            ['1D', mcx1D]
         ];
 
         const timeframeSignals = tfMap
-            .map(([tf, candles]) => analyzeTimeframe(tf, candles))
+            .map(([tf, candles]) => analyzeTimeframe(tf, candles, previousClose ?? undefined))
             .filter((tf) => tf.candleCount > 0);
 
         if (!timeframeSignals.length) {
             throw new Error('Timeframe analysis unavailable');
         }
 
-        const liveChangePercent = activeSnapshot?.changePercent ?? undefined;
-        const liveChange = activeSnapshot?.change ?? undefined;
+        const currentPrice = anchorPrice && Number.isFinite(anchorPrice)
+            ? anchorPrice
+            : timeframeSignals.find((t) => t.timeframe === '1D')?.lastPrice ?? timeframeSignals[0].lastPrice;
+        const computedLiveChange = previousClose != null ? currentPrice - previousClose : null;
+        const computedLiveChangePercent = previousClose != null && previousClose > 0
+            ? ((currentPrice - previousClose) / previousClose) * 100
+            : null;
+        const liveChange = computedLiveChange ?? activeSnapshot?.change ?? undefined;
+        const liveChangePercent = computedLiveChangePercent ?? activeSnapshot?.changePercent ?? undefined;
         const { signal, score, confidence } = computeOverallSignal(timeframeSignals, liveChangePercent);
 
         const dailyTF = timeframeSignals.find((t) => t.timeframe === '1D') || timeframeSignals[0];
         const marketCondition = determineMarketCondition(dailyTF, liveChangePercent);
-        const futuresSetup = generateFuturesSetup(dailyTF, signal);
+        const recommendedTfs: Timeframe[] = ['1H', '3H', '1D'];
+        const futuresSetups = recommendedTfs
+            .map((tf) => timeframeSignals.find((signalTf) => signalTf.timeframe === tf))
+            .filter((tf): tf is typeof timeframeSignals[number] => Boolean(tf))
+            .map((tf) => generateFuturesSetup(tf, signal))
+            .filter((setup): setup is NonNullable<typeof setup> => Boolean(setup));
+        const futuresSetup = futuresSetups.find((setup) => setup.timeframe === '1D') || futuresSetups[0] || null;
 
-        const currentPrice = anchorPrice && Number.isFinite(anchorPrice) ? anchorPrice : dailyTF.lastPrice;
         const optionChainAnalysis = await getOptionChainAnalysis(currentPrice);
 
         const optionsRecommendations = generateOptionsRecommendations(
@@ -274,11 +296,14 @@ export async function GET() {
         const response: SignalBotResponse = {
             timestamp: new Date().toISOString(),
             currentPrice,
+            activeContract: activeSnapshot?.symbol,
+            previousClose: previousClose ?? undefined,
             overallSignal: signal,
             overallConfidence: confidence,
             overallScore: score,
             timeframes: timeframeSignals,
             futuresSetup,
+            futuresSetups,
             optionsRecommendations,
             marketCondition,
             summary,

@@ -15,6 +15,7 @@ type YahooCandle = {
 interface ActiveFutureSnapshot {
     symbol: string;
     ltp: number;
+    previousClose: number | null;
     change: number | null;
     changePercent: number | null;
     asOf: string;
@@ -111,11 +112,23 @@ async function fetchActiveFutureSnapshot(): Promise<ActiveFutureSnapshot | null>
             return null;
         }
 
+        const previousClose = Number.isFinite(chain.futureClose) && (chain.futureClose ?? 0) > 0
+            ? (chain.futureClose as number)
+            : null;
+        const changeFromClose = previousClose != null
+            ? (chain.futureLtp as number) - previousClose
+            : null;
+        const change = changeFromClose ?? chain.futureChange ?? null;
+        const changePercent = previousClose != null
+            ? (((chain.futureLtp as number) - previousClose) / previousClose) * 100
+            : chain.futureChangePercent ?? null;
+
         return {
             symbol: chain.futureSymbol || 'NATURALGAS',
             ltp: chain.futureLtp as number,
-            change: chain.futureChange ?? null,
-            changePercent: chain.futureChangePercent ?? null,
+            previousClose,
+            change,
+            changePercent,
             asOf: chain.fetchedAt
         };
     } catch {
@@ -261,14 +274,11 @@ export async function GET(request: Request) {
 
         const fallbackLast = toFixedNumber(nymexReference * usdinr + premiumSeed, 2);
         const delayedLast = activeFuture?.ltp ?? officialPrice ?? fallbackLast;
-        const delayedChange = activeFuture?.change != null
-            ? toFixedNumber(activeFuture.change, 2)
-            : toFixedNumber(delayedLast - previous.close, 2);
-        const delayedPct = activeFuture?.changePercent != null
-            ? activeFuture.changePercent.toFixed(2)
-            : previous.close === 0
-                ? '0.00'
-                : ((delayedChange / previous.close) * 100).toFixed(2);
+        const dayClose = activeFuture?.previousClose ?? previous.close;
+        const delayedChange = toFixedNumber(delayedLast - dayClose, 2);
+        const delayedPct = dayClose === 0
+            ? '0.00'
+            : ((delayedChange / dayClose) * 100).toFixed(2);
         const delayedAsOf = activeFuture?.asOf || (quotePoint ? new Date(quotePoint.time * 1000).toISOString() : latest.date);
         const provider = activeFuture
             ? 'rupeezy-active-future'

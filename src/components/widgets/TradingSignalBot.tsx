@@ -159,7 +159,7 @@ export default function TradingSignalBot() {
                         <div className="flex items-center justify-center py-16">
                             <div className="flex flex-col items-center gap-4">
                                 <RefreshCw className="w-8 h-8 text-violet-400 animate-spin" />
-                                <span className="text-sm text-zinc-500 font-bold uppercase tracking-wider">Analyzing 5 timeframes...</span>
+                                <span className="text-sm text-zinc-500 font-bold uppercase tracking-wider">Analyzing 3 timeframes...</span>
                             </div>
                         </div>
                     ) : data ? (
@@ -212,9 +212,14 @@ export default function TradingSignalBot() {
                     <div className="flex items-center gap-2 mb-5">
                         <BarChart3 className="w-5 h-5 text-cyan-400" />
                         <h3 className="text-lg font-black text-zinc-100 tracking-tight">TIMEFRAME ANALYSIS</h3>
+                        {data.activeContract && (
+                            <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
+                                {data.activeContract}
+                            </span>
+                        )}
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         {data.timeframes.map(tf => (
                             <TimeframeCard
                                 key={tf.timeframe}
@@ -232,6 +237,12 @@ export default function TradingSignalBot() {
                             <IndicatorHeatmap timeframes={data.timeframes} />
                         </div>
                     </div>
+
+                    {data.previousClose != null && (
+                        <div className="mt-4 text-[10px] uppercase tracking-wider text-zinc-500 font-bold">
+                            Percentage change baseline: Previous day close at Rs {formatPrice(data.previousClose)}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -245,8 +256,17 @@ export default function TradingSignalBot() {
                             <h3 className="text-lg font-black text-zinc-100 tracking-tight">FUTURES SETUP</h3>
                         </div>
 
-                        {data.futuresSetup ? (
-                            <FuturesCard setup={data.futuresSetup} />
+                        {(data.futuresSetups && data.futuresSetups.length > 0) || data.futuresSetup ? (
+                            <div className="space-y-4">
+                                {(data.futuresSetups && data.futuresSetups.length > 0
+                                    ? data.futuresSetups
+                                    : data.futuresSetup
+                                        ? [data.futuresSetup]
+                                        : []
+                                ).map((setup, idx) => (
+                                    <FuturesCard key={`${setup.timeframe || 'TF'}-${idx}`} setup={setup} />
+                                ))}
+                            </div>
                         ) : (
                             <div className="flex flex-col items-center justify-center py-8 text-zinc-600">
                                 <Minus className="w-8 h-8 mb-2" />
@@ -373,6 +393,7 @@ function TimeframeCard({ tf, expanded, onToggle }: { tf: TimeframeSignal; expand
                         {tf.priceChangePercent >= 0 ? '+' : ''}{tf.priceChangePercent.toFixed(2)}%
                     </span>
                 </div>
+                <div className="text-[10px] text-zinc-600">vs prev close</div>
                 <div className="mt-2 flex items-center justify-between">
                     <span className="text-[10px] text-zinc-600">Score: {tf.biasScore > 0 ? '+' : ''}{tf.biasScore}</span>
                     {expanded ? <ChevronUp className="w-3 h-3 text-zinc-600" /> : <ChevronDown className="w-3 h-3 text-zinc-600" />}
@@ -381,6 +402,12 @@ function TimeframeCard({ tf, expanded, onToggle }: { tf: TimeframeSignal; expand
 
             {expanded && (
                 <div className="border-t border-zinc-800/50 p-3 space-y-1.5 bg-zinc-950/30 rounded-b-xl">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] text-zinc-500">Interval Move</span>
+                        <span className={`text-[10px] font-bold ${tf.intervalPriceChangePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {tf.intervalPriceChangePercent >= 0 ? '+' : ''}{tf.intervalPriceChangePercent.toFixed(2)}%
+                        </span>
+                    </div>
                     {tf.signals.map((s, i) => (
                         <div key={i} className="flex items-center justify-between">
                             <span className="text-[10px] text-zinc-500 truncate mr-2">{s.name}</span>
@@ -406,7 +433,7 @@ function FuturesCard({ setup }: { setup: NonNullable<SignalBotResponse['futuresS
                         {setup.direction} FUTURES
                     </div>
                     <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">
-                        MCX Natural Gas Futures
+                        {setup.timeframe ? `${setup.timeframe} Setup • ` : ''}MCX Natural Gas Futures
                     </div>
                 </div>
             </div>

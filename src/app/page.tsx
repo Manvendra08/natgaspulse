@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import Logo from '@/components/Logo';
+import HomeAuthActions from '@/components/home/HomeAuthActions';
+import HomeTopNav from '@/components/home/HomeTopNav';
 import {
     Activity,
     ArrowRight,
@@ -69,20 +71,10 @@ export default function Home() {
                                 Institutional-grade Natural Gas Intelligence
                             </p>
                         </div>
-                        <nav className="flex items-center gap-2 md:gap-3 text-sm font-semibold">
-                            <Link href="/dashboard" className="px-3 py-1.5 rounded-md hover:bg-cyan-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200">
-                                Dashboard
-                            </Link>
-                            <Link href="/signals" className="px-3 py-1.5 rounded-md hover:bg-cyan-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200">
-                                Signals
-                            </Link>
-                            <Link href="/trading-zone" className="px-3 py-1.5 rounded-md hover:bg-cyan-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200">
-                                Trading Zone
-                            </Link>
-                            <Link href="#plans" className="px-3 py-1.5 rounded-md hover:bg-cyan-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200">
-                                Plans
-                            </Link>
-                        </nav>
+                        <div className="w-full md:w-auto md:ml-auto flex flex-col md:flex-row md:items-center gap-3 text-sm font-semibold">
+                            <HomeTopNav />
+                            <HomeAuthActions />
+                        </div>
                     </div>
                 </div>
             </header>

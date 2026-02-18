@@ -86,9 +86,9 @@ const SCRIP_MASTER_TTL_MS = 6 * 60 * 60 * 1000;
 
 let scripMasterCache:
     | {
-          fetchedAt: number;
-          futures: DhanFutureInstrument[];
-      }
+        fetchedAt: number;
+        futures: DhanFutureInstrument[];
+    }
     | null = null;
 
 export async function fetchDhanOptionChainRaw(
@@ -112,43 +112,59 @@ export async function fetchDhanOptionChainRaw(
     let lastUnauthorizedDetails = '';
 
     for (const tokenCandidate of tokenCandidates) {
-        const response = await fetch(DHAN_OPTCHAIN_URL, {
-            method: 'POST',
-            headers: {
-                Auth: tokenCandidate,
-                'Content-Type': 'application/json',
-                Accept: 'application/json, text/plain, */*',
-                Origin: 'https://web.dhan.co',
-                Referer: 'https://web.dhan.co/advancedoptionchain',
-                'User-Agent': 'Mozilla/5.0'
-            },
-            body: JSON.stringify(payload)
-        });
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-        if (!response.ok) {
-            const details = await safeReadText(response);
-            if (response.status === 401) {
-                lastUnauthorizedDetails = details || lastUnauthorizedDetails;
-                continue;
+            const response = await fetch(DHAN_OPTCHAIN_URL, {
+                method: 'POST',
+                headers: {
+                    Auth: tokenCandidate,
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/plain, */*',
+                    Origin: 'https://web.dhan.co',
+                    Referer: 'https://web.dhan.co/advancedoptionchain',
+                    'User-Agent': 'Mozilla/5.0'
+                },
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                const details = await safeReadText(response);
+                if (response.status === 401) {
+                    lastUnauthorizedDetails = details || lastUnauthorizedDetails;
+                    continue;
+                }
+                throw new Error(`Dhan option chain fetch failed: ${response.status}${details ? ` (${details})` : ''}`);
             }
-            throw new Error(`Dhan option chain fetch failed: ${response.status}${details ? ` (${details})` : ''}`);
-        }
 
-        const envelope = (await response.json()) as DhanOptionChainEnvelope;
-        if (typeof envelope.code !== 'number') {
-            throw new Error('Unexpected Dhan option chain response format');
-        }
+            const envelope = (await response.json()) as DhanOptionChainEnvelope;
+            if (typeof envelope.code !== 'number') {
+                throw new Error('Unexpected Dhan option chain response format');
+            }
 
-        if (envelope.code !== 0) {
-            const msg = envelope.message || 'Unknown Dhan API error';
-            throw new Error(`Dhan option chain API error: ${msg}`);
-        }
+            if (envelope.code !== 0) {
+                const msg = envelope.message || 'Unknown Dhan API error';
+                throw new Error(`Dhan option chain API error: ${msg}`);
+            }
 
-        if (!envelope.data) {
-            throw new Error('Dhan option chain response has no data payload');
-        }
+            if (!envelope.data) {
+                throw new Error('Dhan option chain response has no data payload');
+            }
 
-        return envelope.data;
+            return envelope.data;
+        } catch (e: unknown) {
+            if (e instanceof Error && e.name === 'AbortError') {
+                throw new Error('Dhan API request timed out (10s)');
+            }
+            if (tokenCandidate === tokenCandidates[tokenCandidates.length - 1]) {
+                throw e;
+            }
+            // Try next candidate if available.
+        }
     }
 
     throw new Error(

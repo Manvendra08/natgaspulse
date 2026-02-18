@@ -55,12 +55,16 @@ export interface TimeframeSignal {
     indicators: IndicatorValues;
     signals: IndicatorSignal[];
     lastPrice: number;
+    referenceClose: number;
     priceChange: number;
     priceChangePercent: number;
+    intervalPriceChange: number;
+    intervalPriceChangePercent: number;
     candleCount: number;
 }
 
 export interface FuturesSetup {
+    timeframe?: Timeframe;
     direction: SignalDirection;
     entry: number;
     stopLoss: number;
@@ -83,6 +87,8 @@ export interface OptionsRecommendation {
 export interface SignalBotResponse {
     timestamp: string;
     currentPrice: number;
+    activeContract?: string;
+    previousClose?: number;
     liveChange?: number;
     liveChangePercent?: number;
     overallSignal: SignalDirection;
@@ -90,6 +96,7 @@ export interface SignalBotResponse {
     overallScore: number; // -100 to +100
     timeframes: TimeframeSignal[];
     futuresSetup: FuturesSetup | null;
+    futuresSetups?: FuturesSetup[];
     optionsRecommendations: OptionsRecommendation[];
     marketCondition: 'TRENDING' | 'RANGING' | 'VOLATILE';
     summary: string;

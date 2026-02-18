@@ -101,6 +101,7 @@ export interface RupeezyOptionChainResult {
     availableExpiries: string[];
     futureSymbol: string | null;
     futureLtp: number | null;
+    futureClose: number | null;
     futureChange: number | null;
     futureChangePercent: number | null;
     strikes: RupeezyOptionChainRow[];
@@ -143,12 +144,15 @@ export async function fetchRupeezyOptionChain(
     const futureSymbol = futureSnapshot?.security_desc || payload.parentStockData?.symbol || underlying;
     const futureLtp = normalizePrice(futureSnapshot?.ltp ?? payload.parentStockData?.livePrice);
     const futureClose = normalizePrice(futureSnapshot?.close);
-    const futureChangePercent = toFiniteOptional(futureSnapshot?.percentage_change) ?? null;
+    const vendorPct = toFiniteOptional(futureSnapshot?.percentage_change) ?? null;
     const futureChange = (futureLtp > 0 && futureClose > 0)
         ? futureLtp - futureClose
-        : futureChangePercent != null && futureLtp > 0
-            ? (futureLtp * futureChangePercent) / 100
+        : vendorPct != null && futureLtp > 0
+            ? (futureLtp * vendorPct) / 100
             : null;
+    const futureChangePercent = (futureLtp > 0 && futureClose > 0)
+        ? ((futureLtp - futureClose) / futureClose) * 100
+        : vendorPct;
 
     let quoteError: string | null = null;
     let ltpByToken = new Map<number, RupeezyLtpRaw>();
@@ -206,6 +210,7 @@ export async function fetchRupeezyOptionChain(
         availableExpiries,
         futureSymbol,
         futureLtp: futureLtp ?? null,
+        futureClose: futureClose > 0 ? futureClose : null,
         futureChange,
         futureChangePercent,
         strikes: trimmedRows
