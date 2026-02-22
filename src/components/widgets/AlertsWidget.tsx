@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Bell, AlertTriangle, TrendingUp, TrendingDown, Snowflake, Zap, Thermometer, Leaf, ShieldAlert } from 'lucide-react';
+import { Bell, AlertTriangle, TrendingUp, Zap, Thermometer, Leaf, ShieldAlert } from 'lucide-react';
 
 interface Alert {
     id: string;
@@ -11,12 +11,74 @@ interface Alert {
     timestamp: Date;
 }
 
+type SocialCategory = 'OFFICIAL' | 'WEATHER' | 'ANALYST';
+
 interface SocialAlert {
     id: string;
     handle: string;
+    role: string;
+    category: SocialCategory;
     message: string;
-    timestamp: Date;
+    timestamp: string;
     verified: boolean;
+}
+
+interface IntelligenceFeedResponse {
+    generatedAt: string;
+    market?: {
+        henryHub?: {
+            price: number | null;
+            change: number | null;
+            changePercent: number | null;
+            asOf: string | null;
+        };
+        mcxActive?: {
+            price: number | null;
+            change: number | null;
+            changePercent: number | null;
+            asOf: string | null;
+        };
+        spaceWeather?: {
+            kIndex: number | null;
+            asOf: string | null;
+        };
+    };
+    socialStream?: SocialAlert[];
+}
+
+const SOCIAL_HASHTAGS = ['#NatGas', '#LNG', '#EIA', '#HenryHub'];
+
+const SOCIAL_CATEGORY_LABELS: Record<SocialCategory, string> = {
+    OFFICIAL: 'Official/Data',
+    WEATHER: 'Weather',
+    ANALYST: 'Analyst/Trader'
+};
+
+const SOCIAL_CATEGORY_BADGE_CLASSES: Record<SocialCategory, string> = {
+    OFFICIAL: 'bg-blue-500/15 border border-blue-500/30 text-blue-600 dark:text-blue-300',
+    WEATHER: 'bg-orange-500/15 border border-orange-500/30 text-orange-600 dark:text-orange-300',
+    ANALYST: 'bg-purple-500/15 border border-purple-500/30 text-purple-600 dark:text-purple-300'
+};
+
+function formatIstTimestamp(utcIso: string): string {
+    const date = new Date(utcIso);
+    if (!Number.isFinite(date.getTime())) return '--';
+    const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    }).formatToParts(date);
+
+    const day = parts.find((p) => p.type === 'day')?.value || '--';
+    const month = parts.find((p) => p.type === 'month')?.value || '---';
+    const year = parts.find((p) => p.type === 'year')?.value || '----';
+    const hour = parts.find((p) => p.type === 'hour')?.value || '--';
+    const minute = parts.find((p) => p.type === 'minute')?.value || '--';
+    return `${day} ${month} ${year}, ${hour}:${minute} IST`;
 }
 
 interface AlertsWidgetProps {
@@ -28,6 +90,8 @@ interface AlertsWidgetProps {
 export default function AlertsWidget({ storageData, priceData, weatherData }: AlertsWidgetProps) {
     const [alerts, setAlerts] = useState<Alert[]>([]);
     const [socialAlerts, setSocialAlerts] = useState<SocialAlert[]>([]);
+    const [feedError, setFeedError] = useState<string | null>(null);
+    const [feedUpdatedAt, setFeedUpdatedAt] = useState<string | null>(null);
 
     useEffect(() => {
         const newAlerts: Alert[] = [];
@@ -93,47 +157,7 @@ export default function AlertsWidget({ storageData, priceData, weatherData }: Al
             }
         }
 
-        // 4. G2+ Geomagnetic Storm Monitor (Intelligence Input)
-        // Simulated: In reality this would come from NOAA Space Weather API
-        const kIndex = 6.4; // Simulated G2+ event
-        if (kIndex >= 6) {
-            newAlerts.push({
-                id: 'geomagnetic-g2',
-                type: 'warning',
-                category: 'GEOMAGNETIC',
-                message: `G2+ Geomagnetic Alert: Moderate solar storm in progress. Possible grid fluctuations and communication interference in high latitudes.`,
-                icon: ShieldAlert,
-                timestamp: now
-            });
-        }
-
         setAlerts(newAlerts.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()));
-
-        // Simulated High-Intelligence Social Stream
-        const socialStream: SocialAlert[] = [
-            {
-                id: 'social-1',
-                handle: 'Atmospheric_G2',
-                message: 'Significant cold block expanding into Midwest. HDD estimates rising +12% for next 5 days. Expect bull pressure on spot prices.',
-                timestamp: new Date(now.getTime() - 1000 * 60 * 45),
-                verified: true
-            },
-            {
-                id: 'social-2',
-                handle: 'NatGas_Insider',
-                message: 'Freeport LNG feed gas usage up to 2.1 Bcf/d. Export capacity nearing max. Structural demand remains robust despite weekly storage build.',
-                timestamp: new Date(now.getTime() - 1000 * 60 * 120),
-                verified: true
-            },
-            {
-                id: 'social-3',
-                handle: 'EnergyFlow_Analyst',
-                message: 'Observing localized pipeline maintenance in Permian basin. Temporary supply pinch possible in southern corridors.',
-                timestamp: new Date(now.getTime() - 1000 * 60 * 240),
-                verified: true
-            }
-        ];
-        setSocialAlerts(socialStream);
 
         // Request notification permission if critical alerts exist
         if (newAlerts.some(a => a.type === 'critical') && 'Notification' in window) {
@@ -146,6 +170,84 @@ export default function AlertsWidget({ storageData, priceData, weatherData }: Al
         }
 
     }, [storageData, priceData, weatherData]);
+
+    useEffect(() => {
+        let mounted = true;
+
+        const fetchIntelligenceFeed = async () => {
+            try {
+                const response = await fetch('/api/dashboard/intelligence', { cache: 'no-store' });
+                const payload = await response.json() as IntelligenceFeedResponse;
+
+                if (!response.ok) {
+                    throw new Error('Intelligence feed unavailable');
+                }
+
+                if (!mounted) {
+                    return;
+                }
+
+                const geoKIndex = payload?.market?.spaceWeather?.kIndex;
+                if (geoKIndex != null && Number.isFinite(geoKIndex)) {
+                    setAlerts((current) => {
+                        const withoutGeomagnetic = current.filter((alert) => alert.id !== 'geomagnetic-g2');
+                        if (geoKIndex >= 6) {
+                            withoutGeomagnetic.unshift({
+                                id: 'geomagnetic-g2',
+                                type: 'warning',
+                                category: 'GEOMAGNETIC',
+                                message: `G2+ Geomagnetic Alert: Estimated K-index ${geoKIndex.toFixed(2)}. Moderate-to-strong solar activity can impact grid/communications risk profiles.`,
+                                icon: ShieldAlert,
+                                timestamp: new Date(payload?.market?.spaceWeather?.asOf || Date.now())
+                            });
+                        }
+
+                        return withoutGeomagnetic.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+                    });
+                }
+
+                const mcxLivePct = payload?.market?.mcxActive?.changePercent;
+                if (mcxLivePct != null && Number.isFinite(mcxLivePct)) {
+                    setAlerts((current) => {
+                        const withoutLiveVolatility = current.filter((alert) => alert.id !== 'mcx-live-volatility');
+                        if (Math.abs(mcxLivePct) >= 2) {
+                            withoutLiveVolatility.unshift({
+                                id: 'mcx-live-volatility',
+                                type: Math.abs(mcxLivePct) >= 4 ? 'critical' : 'warning',
+                                category: 'PRICE',
+                                message: `Live MCX volatility pulse: ${mcxLivePct >= 0 ? '+' : ''}${mcxLivePct.toFixed(2)}% on active contract. Elevated intraday flow detected.`,
+                                icon: Zap,
+                                timestamp: new Date(payload?.market?.mcxActive?.asOf || Date.now())
+                            });
+                        }
+
+                        return withoutLiveVolatility.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+                    });
+                }
+
+                const streamRows = Array.isArray(payload?.socialStream) ? payload.socialStream : [];
+                if (streamRows.length > 0) {
+                    setSocialAlerts(streamRows);
+                }
+
+                setFeedUpdatedAt(payload?.generatedAt || new Date().toISOString());
+                setFeedError(null);
+            } catch (err: any) {
+                if (!mounted) {
+                    return;
+                }
+                setFeedError(err?.message || 'Feed update failed');
+            }
+        };
+
+        fetchIntelligenceFeed();
+        const interval = setInterval(fetchIntelligenceFeed, 30 * 1000);
+
+        return () => {
+            mounted = false;
+            clearInterval(interval);
+        };
+    }, []);
 
     return (
         <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-5 md:p-6 shadow-xl dark:shadow-2xl h-full flex flex-col min-h-[400px]">
@@ -214,11 +316,32 @@ export default function AlertsWidget({ storageData, priceData, weatherData }: Al
                     <h2 className="text-[11px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">X Social Stream</h2>
                     <div className="ml-auto flex items-center gap-1.5">
                         <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
-                        <span className="text-[9px] text-zinc-400 dark:text-zinc-600 font-black uppercase">Flow</span>
+                        <span className="text-[9px] text-zinc-400 dark:text-zinc-600 font-black uppercase">30s poll</span>
                     </div>
                 </div>
 
+                <div className="mb-3 flex flex-wrap items-center gap-2 text-[10px] font-semibold">
+                    <span className="text-zinc-500 dark:text-zinc-400">Last update: {feedUpdatedAt ? formatIstTimestamp(feedUpdatedAt) : '--'}</span>
+                    {feedError && <span className="text-amber-500">{feedError}</span>}
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                    {SOCIAL_HASHTAGS.map((tag) => (
+                        <span
+                            key={tag}
+                            className="px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 text-[9px] font-black text-zinc-500 dark:text-zinc-400"
+                        >
+                            {tag}
+                        </span>
+                    ))}
+                </div>
+
                 <div className="space-y-3 flex-1 overflow-y-auto pr-2 custom-scrollbar max-h-[300px]">
+                    {socialAlerts.length === 0 && (
+                        <div className="p-3 rounded-lg border border-zinc-200 dark:border-zinc-800/50 text-xs text-zinc-500 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900/30">
+                            Waiting for live stream payload...
+                        </div>
+                    )}
                     {socialAlerts.map((social) => (
                         <div key={social.id} className="p-3 bg-zinc-50 dark:bg-zinc-900/30 border border-zinc-200 dark:border-zinc-800/50 rounded-lg hover:border-sky-500/20 transition-all group">
                             <div className="flex items-center gap-2 mb-1.5">
@@ -235,12 +358,18 @@ export default function AlertsWidget({ storageData, priceData, weatherData }: Al
                                         <path d="M22.5 12.5c0-1.58-.88-2.95-2.18-3.66.54-1.22.42-2.66-.35-3.81s-2.13-1.66-3.41-1.42c-.75-1.1-1.93-1.81-3.26-1.81s-2.51.71-3.26 1.81c-1.28-.24-2.64.27-3.41 1.42s-.89 2.59-.35 3.81C2.38 9.55 1.5 10.92 1.5 12.5s.88 2.95 2.18 3.66c-.54 1.22-.42 2.66.35 3.81s2.13 1.66 3.41 1.42c.75 1.1 1.93 1.81 3.26 1.81s2.51-.71 3.26-1.81c1.28.24 2.64-.27 3.41-1.42s.89-2.59.35-3.81c1.3-.71 2.18-2.08 2.18-3.66zm-11 4.5l-4-4 1.5-1.5 2.5 2.5 6-6 1.5 1.5-7.5 7.5z" />
                                     </svg>
                                 )}
-                                <span className="text-[9px] text-zinc-400 dark:text-zinc-600 font-bold ml-auto">
-                                    {Math.floor((new Date().getTime() - social.timestamp.getTime()) / 60000)}m ago
+                                <span className="text-[9px] font-bold text-zinc-500 dark:text-zinc-400">
+                                    {social.role}
+                                </span>
+                                <span className={`px-1.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider ${SOCIAL_CATEGORY_BADGE_CLASSES[social.category]}`}>
+                                    {SOCIAL_CATEGORY_LABELS[social.category]}
                                 </span>
                             </div>
                             <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-normal italic font-medium">
                                 "{social.message}"
+                            </p>
+                            <p className="mt-2 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">
+                                {formatIstTimestamp(social.timestamp)}
                             </p>
                         </div>
                     ))}

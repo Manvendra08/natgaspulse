@@ -1,61 +1,97 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    TrendingUp, TrendingDown, Minus, RefreshCw, Clock, Target,
-    Shield, Zap, BarChart3, Activity, AlertTriangle, ChevronDown,
-    ChevronUp, Crosshair, Layers, ArrowUpRight, ArrowDownRight
+    Activity,
+    BarChart3,
+    Clock,
+    Layers,
+    RefreshCw,
+    Shield,
+    Signal,
+    TrendingDown,
+    TrendingUp,
+    Target,
+    Newspaper,
+    MessagesSquare,
+    Minus
 } from 'lucide-react';
-import type { SignalBotResponse, TimeframeSignal, IndicatorSignal, SignalDirection, Confidence } from '@/lib/types/signals';
+import type {
+    SignalBotResponse,
+    TimeframeSignal,
+    SignalDirection,
+    Confidence,
+    FuturesSetup,
+    OptionStrike,
+    Timeframe
+} from '@/lib/types/signals';
 
-// ─── Helpers ───────────────────────────────────────────────────
+const REFRESH_INTERVAL = 5 * 60 * 1000;
 
-function signalColor(signal: SignalDirection) {
-    if (signal === 'BUY') return 'text-emerald-400';
-    if (signal === 'SELL') return 'text-red-400';
+function signalTextClass(signal: SignalDirection) {
+    if (signal === 'BUY') return 'text-emerald-300';
+    if (signal === 'SELL') return 'text-red-300';
+    return 'text-zinc-300';
+}
+
+function signalBorderClass(signal: SignalDirection) {
+    if (signal === 'BUY') return 'border-emerald-500/40 bg-emerald-500/10';
+    if (signal === 'SELL') return 'border-red-500/40 bg-red-500/10';
+    return 'border-zinc-700 bg-zinc-900/70';
+}
+
+function confidenceTextClass(value: Confidence) {
+    if (value === 'HIGH') return 'text-emerald-300';
+    if (value === 'MEDIUM') return 'text-amber-300';
     return 'text-zinc-400';
 }
-function signalBg(signal: SignalDirection) {
-    if (signal === 'BUY') return 'bg-emerald-500/10 border-emerald-500/30';
-    if (signal === 'SELL') return 'bg-red-500/10 border-red-500/30';
-    return 'bg-zinc-500/10 border-zinc-500/30';
-}
-function signalBgSolid(signal: SignalDirection) {
-    if (signal === 'BUY') return 'bg-emerald-500';
-    if (signal === 'SELL') return 'bg-red-500';
-    return 'bg-zinc-600';
-}
-function confidenceColor(c: Confidence) {
-    if (c === 'HIGH') return 'text-emerald-400';
-    if (c === 'MEDIUM') return 'text-amber-400';
-    return 'text-zinc-500';
-}
-function confidenceBg(c: Confidence) {
-    if (c === 'HIGH') return 'bg-emerald-500/10 border-emerald-500/30';
-    if (c === 'MEDIUM') return 'bg-amber-500/10 border-amber-500/30';
-    return 'bg-zinc-500/10 border-zinc-500/30';
-}
-function SignalIcon({ signal, className = 'w-4 h-4' }: { signal: SignalDirection; className?: string }) {
-    if (signal === 'BUY') return <TrendingUp className={`${className} text-emerald-400`} />;
-    if (signal === 'SELL') return <TrendingDown className={`${className} text-red-400`} />;
-    return <Minus className={`${className} text-zinc-500`} />;
-}
-function formatPrice(n: number) {
-    return n < 10 ? n.toFixed(4) : n.toFixed(2);
+
+function formatPrice(value: number) {
+    return value < 10 ? value.toFixed(4) : value.toFixed(2);
 }
 
-const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+function formatCompact(value?: number) {
+    if (!Number.isFinite(value as number)) return '--';
+    return Number(value).toLocaleString();
+}
 
-// ─── Component ─────────────────────────────────────────────────
+function HoldIcon() {
+    return <Minus className="w-4 h-4 text-zinc-400" />;
+}
+
+function DirectionIcon({ direction }: { direction: SignalDirection }) {
+    if (direction === 'BUY') return <TrendingUp className="w-4 h-4 text-emerald-300" />;
+    if (direction === 'SELL') return <TrendingDown className="w-4 h-4 text-red-300" />;
+    return <HoldIcon />;
+}
+
+function computeIvRank(chain: OptionStrike[] | undefined) {
+    if (!chain || chain.length < 3) return null;
+
+    const ivValues = chain
+        .flatMap((row) => [row.ce?.iv ?? null, row.pe?.iv ?? null])
+        .filter((v): v is number => Number.isFinite(v) && v > 0);
+
+    if (ivValues.length < 3) return null;
+
+    const min = Math.min(...ivValues);
+    const max = Math.max(...ivValues);
+    const current = ivValues[Math.floor(ivValues.length / 2)] ?? ivValues[0];
+    if (!Number.isFinite(current) || max <= min) return null;
+
+    const rank = ((current - min) / (max - min)) * 100;
+    return Math.max(0, Math.min(100, rank));
+}
 
 export default function TradingSignalBot() {
     const [data, setData] = useState<SignalBotResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [countdown, setCountdown] = useState(REFRESH_INTERVAL / 1000);
-    const [expandedTF, setExpandedTF] = useState<string | null>(null);
-    const timerRef = useRef<NodeJS.Timeout | null>(null);
-    const countdownRef = useRef<NodeJS.Timeout | null>(null);
+    const [activeTf, setActiveTf] = useState<Timeframe>('1D');
+
+    const refreshRef = useRef<NodeJS.Timeout | null>(null);
+    const tickRef = useRef<NodeJS.Timeout | null>(null);
 
     const fetchSignals = useCallback(async () => {
         try {
@@ -66,447 +102,317 @@ export default function TradingSignalBot() {
             const json: SignalBotResponse = await res.json();
             setData(json);
             setCountdown(REFRESH_INTERVAL / 1000);
-        } catch (err: any) {
-            setError(err.message || 'Failed to fetch signals');
+
+            const available = (json.timeframes || []).map((tf) => tf.timeframe);
+            if (!available.includes(activeTf)) {
+                setActiveTf((available[0] || '1D') as Timeframe);
+            }
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : 'Failed to fetch signals';
+            setError(msg);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [activeTf]);
 
     useEffect(() => {
         fetchSignals();
-        timerRef.current = setInterval(fetchSignals, REFRESH_INTERVAL);
-        countdownRef.current = setInterval(() => {
-            setCountdown(prev => (prev > 0 ? prev - 1 : REFRESH_INTERVAL / 1000));
+        refreshRef.current = setInterval(fetchSignals, REFRESH_INTERVAL);
+        tickRef.current = setInterval(() => {
+            setCountdown((prev) => (prev > 0 ? prev - 1 : REFRESH_INTERVAL / 1000));
         }, 1000);
+
         return () => {
-            if (timerRef.current) clearInterval(timerRef.current);
-            if (countdownRef.current) clearInterval(countdownRef.current);
+            if (refreshRef.current) clearInterval(refreshRef.current);
+            if (tickRef.current) clearInterval(tickRef.current);
         };
     }, [fetchSignals]);
 
+    const activeTfSignal = useMemo(() => {
+        if (!data?.timeframes?.length) return null;
+        return data.timeframes.find((tf) => tf.timeframe === activeTf) || data.timeframes[0];
+    }, [data?.timeframes, activeTf]);
+
+    const activeSetup = useMemo(() => {
+        const all = data?.futuresSetups || (data?.futuresSetup ? [data.futuresSetup] : []);
+        if (!all.length) return null;
+        return all.find((item) => item.timeframe === activeTf) || all[0] || null;
+    }, [data?.futuresSetups, data?.futuresSetup, activeTf]);
+
+    const ivRank = useMemo(() => computeIvRank(data?.optionChainAnalysis?.chain), [data?.optionChainAnalysis?.chain]);
+
+    const miniNews = useMemo(() => {
+        if (!data) return [];
+        return [
+            `Overall signal ${data.overallSignal} (${data.overallConfidence}) with score ${data.overallScore}.`,
+            `Market condition is ${data.marketCondition.toLowerCase()} with active contract ${data.activeContract || 'NATURALGAS'}.`,
+            data.summary
+        ];
+    }, [data]);
+
+    const sentimentFeed = useMemo(() => {
+        if (!data?.timeframes) return [];
+        return data.timeframes.map((tf) => `${tf.timeframe}: ${tf.bias} (${tf.priceChangePercent >= 0 ? '+' : ''}${tf.priceChangePercent.toFixed(2)}%)`);
+    }, [data?.timeframes]);
+
     if (error && !data) {
         return (
-            <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-red-500/30 rounded-2xl p-8">
-                <div className="flex items-center gap-3 text-red-400">
-                    <AlertTriangle className="w-6 h-6" />
-                    <span className="font-bold">Signal Bot Error: {error}</span>
-                </div>
-                <button onClick={fetchSignals} className="mt-4 px-4 py-2 bg-red-500/20 border border-red-500/40 rounded-lg text-red-400 text-sm font-bold hover:bg-red-500/30 transition">
+            <div className="rounded-2xl border border-red-500/40 bg-zinc-950 p-6 text-red-300">
+                <div className="text-sm font-bold">Signal fetch failed: {error}</div>
+                <button
+                    onClick={fetchSignals}
+                    className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs font-bold uppercase tracking-wider"
+                >
                     Retry
                 </button>
             </div>
         );
     }
 
-    return (
-        <div className="space-y-6">
-            {/* ─── Header & Overall Signal ─── */}
-            <div className="bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
-                {/* Animated glow */}
-                {data && data.overallSignal !== 'HOLD' && (
-                    <div className={`absolute inset-0 opacity-[0.03] ${data.overallSignal === 'BUY' ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                )}
+    const topSignal = data?.overallSignal || 'HOLD';
 
-                <div className="relative z-10">
-                    {/* Title Row */}
-                    <div className="flex items-center justify-between mb-6">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2.5 bg-violet-500/10 rounded-xl border border-violet-500/30">
-                                <Zap className="w-6 h-6 text-violet-400" />
-                            </div>
-                            <div>
-                                <h2 className="text-xl font-black text-zinc-100 tracking-tight flex items-center gap-2">
-                                    MCX SIGNAL BOT
-                                    {data?.dataSource === 'MCX Official' && (
-                                        <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
-                                            Official
-                                        </span>
-                                    )}
-                                    {data?.dataSource === 'Rupeezy Active Future' && (
-                                        <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
-                                            Live
-                                        </span>
-                                    )}
-                                    {data?.dataSource === 'Derived (NYMEX * USDINR)' && (
-                                        <span className="text-[10px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
-                                            Parity
-                                        </span>
-                                    )}
-                                </h2>
-                                <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Multi-Timeframe • Natural Gas • MCX</p>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <div className="text-right">
-                                <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Next Refresh</div>
-                                <div className="text-xs font-mono text-zinc-400 flex items-center gap-1">
-                                    <Clock className="w-3 h-3" />
-                                    {Math.floor(countdown / 60)}:{String(countdown % 60).padStart(2, '0')}
-                                </div>
-                            </div>
-                            <button
-                                onClick={fetchSignals}
-                                disabled={loading}
-                                className="p-2 rounded-lg bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 transition disabled:opacity-50"
-                            >
-                                <RefreshCw className={`w-4 h-4 text-zinc-400 ${loading ? 'animate-spin' : ''}`} />
+    return (
+        <div className="space-y-4">
+            <div className="sticky top-16 z-20 rounded-xl border border-zinc-800 bg-zinc-950/95 backdrop-blur px-4 py-3">
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+                    <TopStat label="Price" value={data ? `INR ${formatPrice(data.currentPrice)}` : '--'} tone={topSignal} />
+                    <TopStat label="% Change" value={data?.liveChangePercent != null ? `${data.liveChangePercent >= 0 ? '+' : ''}${data.liveChangePercent.toFixed(2)}%` : '--'} tone={data?.liveChangePercent != null ? (data.liveChangePercent >= 0 ? 'BUY' : 'SELL') : 'HOLD'} />
+                    <TopStat label="OI" value={formatCompact(data?.marketStats?.openInterest)} tone="HOLD" />
+                    <TopStat label="Volume" value={formatCompact(data?.marketStats?.volume)} tone="HOLD" />
+                    <TopStat label="Bid / Ask" value={data?.marketStats?.bid != null && data?.marketStats?.ask != null ? `${formatPrice(data.marketStats.bid)} / ${formatPrice(data.marketStats.ask)}` : '--'} tone="HOLD" />
+                    <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-2">
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-black">Refresh</div>
+                        <div className="mt-1 flex items-center justify-between text-xs font-semibold text-zinc-300">
+                            <span>{Math.floor(countdown / 60)}:{String(countdown % 60).padStart(2, '0')}</span>
+                            <button onClick={fetchSignals} className="inline-flex items-center gap-1 rounded border border-zinc-700 px-2 py-1 text-[10px]">
+                                <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+                                Refresh
                             </button>
                         </div>
                     </div>
-
-                    {loading && !data ? (
-                        <div className="flex items-center justify-center py-16">
-                            <div className="flex flex-col items-center gap-4">
-                                <RefreshCw className="w-8 h-8 text-violet-400 animate-spin" />
-                                <span className="text-sm text-zinc-500 font-bold uppercase tracking-wider">Analyzing 3 timeframes...</span>
-                            </div>
-                        </div>
-                    ) : data ? (
-                        <>
-                            {/* Overall Signal Badge */}
-                            <div className="flex flex-col md:flex-row items-start md:items-center gap-6 mb-6">
-                                <div className={`flex items-center gap-4 px-6 py-4 rounded-xl border-2 ${data.overallSignal === 'BUY' ? 'border-emerald-500/50 bg-emerald-500/5' : data.overallSignal === 'SELL' ? 'border-red-500/50 bg-red-500/5' : 'border-zinc-700 bg-zinc-800/50'}`}>
-                                    <div className={`p-3 rounded-xl ${signalBgSolid(data.overallSignal)}`}>
-                                        <SignalIcon signal={data.overallSignal} className="w-8 h-8 text-white" />
-                                    </div>
-                                    <div>
-                                        <div className={`text-3xl font-black tracking-tight ${signalColor(data.overallSignal)}`}>
-                                            {data.overallSignal}
-                                        </div>
-                                        <div className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Overall Signal</div>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 flex-1">
-                                    <MiniStat
-                                        label="Price"
-                                        value={`Rs ${formatPrice(data.currentPrice)}`}
-                                        subValue={data.liveChangePercent != null
-                                            ? `${data.liveChangePercent >= 0 ? '+' : ''}${data.liveChangePercent.toFixed(2)}%`
-                                            : undefined}
-                                        subValueClass={data.liveChangePercent == null
-                                            ? 'text-zinc-500'
-                                            : data.liveChangePercent >= 0
-                                                ? 'text-emerald-400'
-                                                : 'text-red-400'}
-                                    />
-                                    <MiniStat label="Score" value={`${data.overallScore > 0 ? '+' : ''}${data.overallScore}`} valueClass={signalColor(data.overallSignal)} />
-                                    <MiniStat label="Confidence" value={data.overallConfidence} valueClass={confidenceColor(data.overallConfidence)} />
-                                    <MiniStat label="Market" value={data.marketCondition} valueClass={data.marketCondition === 'TRENDING' ? 'text-violet-400' : data.marketCondition === 'VOLATILE' ? 'text-amber-400' : 'text-zinc-400'} />
-                                </div>
-                            </div>
-
-                            {/* Summary */}
-                            <div className="bg-zinc-800/30 border border-zinc-800 rounded-xl p-4">
-                                <p className="text-sm text-zinc-300 leading-relaxed">{data.summary}</p>
-                            </div>
-                        </>
-                    ) : null}
                 </div>
             </div>
 
-            {/* ─── Multi-Timeframe Grid ─── */}
+            {loading && !data ? (
+                <div className="h-[420px] rounded-2xl border border-zinc-800 bg-zinc-950 animate-pulse" />
+            ) : null}
+
             {data && (
-                <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
-                    <div className="flex items-center gap-2 mb-5">
-                        <BarChart3 className="w-5 h-5 text-cyan-400" />
-                        <h3 className="text-lg font-black text-zinc-100 tracking-tight">TIMEFRAME ANALYSIS</h3>
-                        {data.activeContract && (
-                            <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
-                                {data.activeContract}
-                            </span>
-                        )}
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        {data.timeframes.map(tf => (
-                            <TimeframeCard
-                                key={tf.timeframe}
-                                tf={tf}
-                                expanded={expandedTF === tf.timeframe}
-                                onToggle={() => setExpandedTF(expandedTF === tf.timeframe ? null : tf.timeframe)}
-                            />
-                        ))}
-                    </div>
-
-                    {/* Indicator Heatmap */}
-                    <div className="mt-6">
-                        <h4 className="text-xs font-black text-zinc-500 uppercase tracking-widest mb-3">Indicator Heatmap</h4>
-                        <div className="overflow-x-auto">
-                            <IndicatorHeatmap timeframes={data.timeframes} />
-                        </div>
-                    </div>
-
-                    {data.previousClose != null && (
-                        <div className="mt-4 text-[10px] uppercase tracking-wider text-zinc-500 font-bold">
-                            Percentage change baseline: Previous day close at Rs {formatPrice(data.previousClose)}
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* ─── Futures & Options Row ─── */}
-            {data && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Futures Setup */}
-                    <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
-                        <div className="flex items-center gap-2 mb-5">
-                            <Target className="w-5 h-5 text-amber-400" />
-                            <h3 className="text-lg font-black text-zinc-100 tracking-tight">FUTURES SETUP</h3>
-                        </div>
-
-                        {(data.futuresSetups && data.futuresSetups.length > 0) || data.futuresSetup ? (
-                            <div className="space-y-4">
-                                {(data.futuresSetups && data.futuresSetups.length > 0
-                                    ? data.futuresSetups
-                                    : data.futuresSetup
-                                        ? [data.futuresSetup]
-                                        : []
-                                ).map((setup, idx) => (
-                                    <FuturesCard key={`${setup.timeframe || 'TF'}-${idx}`} setup={setup} />
-                                ))}
+                <>
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                        <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+                            <div className="mb-3 flex items-center justify-between">
+                                <h3 className="text-sm font-black uppercase tracking-wider text-zinc-200 inline-flex items-center gap-2">
+                                    <Signal className="w-4 h-4 text-cyan-400" />
+                                    Multi-Timeframe Grid
+                                </h3>
+                                <span className={`text-xs font-black ${confidenceTextClass(data.overallConfidence)}`}>Confidence {data.overallConfidence}</span>
                             </div>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center py-8 text-zinc-600">
-                                <Minus className="w-8 h-8 mb-2" />
-                                <span className="text-sm font-bold">No clear futures setup</span>
-                                <span className="text-[10px] text-zinc-700 mt-1">Market is neutral — wait for directional bias</span>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Options Advisor */}
-                    <div className="bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
-                        <div className="flex items-center gap-2 mb-5">
-                            <Layers className="w-5 h-5 text-pink-400" />
-                            <h3 className="text-lg font-black text-zinc-100 tracking-tight">OPTIONS ADVISOR</h3>
-                        </div>
-
-                        {data.optionChainAnalysis && (
-                            <div className="grid grid-cols-2 gap-3 mb-4">
-                                <div className="bg-zinc-800/30 border border-zinc-800 rounded-lg p-2.5 flex justify-between items-center">
-                                    <span className="text-[10px] uppercase text-zinc-500 font-bold">PCR (OI)</span>
-                                    <span className={`text-sm font-black ${data.optionChainAnalysis.pcr >= 1 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                        {data.optionChainAnalysis.pcr.toFixed(2)}
-                                    </span>
-                                </div>
-                                <div className="bg-zinc-800/30 border border-zinc-800 rounded-lg p-2.5 flex justify-between items-center">
-                                    <span className="text-[10px] uppercase text-zinc-500 font-bold">Max Pain</span>
-                                    <span className="text-sm font-black text-amber-400">
-                                        ₹{data.optionChainAnalysis.maxPain}
-                                    </span>
-                                </div>
-                                <div className="bg-zinc-800/30 border border-zinc-800 rounded-lg p-2.5 flex justify-between items-center">
-                                    <span className="text-[10px] uppercase text-zinc-500 font-bold">Call Res</span>
-                                    <span className="text-sm font-black text-red-400">
-                                        ₹{data.optionChainAnalysis.callResistance}
-                                    </span>
-                                </div>
-                                <div className="bg-zinc-800/30 border border-zinc-800 rounded-lg p-2.5 flex justify-between items-center">
-                                    <span className="text-[10px] uppercase text-zinc-500 font-bold">Put Supp</span>
-                                    <span className="text-sm font-black text-emerald-400">
-                                        ₹{data.optionChainAnalysis.putSupport}
-                                    </span>
-                                </div>
-                            </div>
-                        )}
-
-                        {data.optionsRecommendations.length > 0 ? (
-                            <div className="space-y-3">
-                                {data.optionsRecommendations.map((rec, i) => (
-                                    <div key={i} className={`p-4 rounded-xl border ${rec.action === 'BUY' ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-amber-500/20 bg-amber-500/5'}`}>
-                                        <div className="flex items-center justify-between mb-2">
-                                            <div className="flex items-center gap-2">
-                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${rec.action === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                                                    {rec.action}
-                                                </span>
-                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${rec.optionType === 'CE' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-pink-500/20 text-pink-400'}`}>
-                                                    {rec.optionType === 'CE' ? 'CALL' : 'PUT'}
-                                                </span>
-                                            </div>
-                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${confidenceBg(rec.riskLevel)}`}>
-                                                {rec.riskLevel} CONF
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                                {data.timeframes.map((tf) => (
+                                    <button
+                                        key={tf.timeframe}
+                                        onClick={() => setActiveTf(tf.timeframe)}
+                                        className={`rounded-lg border p-3 text-left transition ${signalBorderClass(tf.bias)} ${activeTf === tf.timeframe ? 'ring-2 ring-cyan-500/40' : ''}`}
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <span className="inline-flex items-center rounded-full bg-cyan-500/20 border border-cyan-500/40 px-2.5 py-1 text-[18px] font-bold leading-none text-cyan-200">
+                                                {tf.timeframe}
                                             </span>
+                                            <DirectionIcon direction={tf.bias} />
                                         </div>
-                                        <div className="flex items-baseline gap-2 mb-2">
-                                            <span className="text-lg font-black text-zinc-100">Strike: ₹{formatPrice(rec.strikePrice)}</span>
-                                            <span className="text-[10px] text-zinc-500">Exp Move: ±₹{formatPrice(rec.expectedMove)}</span>
+                                        <div className={`mt-2 text-sm font-black ${signalTextClass(tf.bias)}`}>{tf.bias}</div>
+                                        <div className={`text-xs font-mono ${tf.priceChangePercent >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                                            {tf.priceChangePercent >= 0 ? '+' : ''}{tf.priceChangePercent.toFixed(2)}%
                                         </div>
-                                        <p className="text-xs text-zinc-400 leading-relaxed">{rec.rationale}</p>
+                                        <div className="text-[10px] text-zinc-500">vs period open</div>
+                                    </button>
+                                ))}
+                            </div>
+                        </section>
+
+                        <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+                            <div className="mb-3 flex items-center gap-2">
+                                <Target className="w-4 h-4 text-amber-300" />
+                                <h3 className="text-sm font-black uppercase tracking-wider text-zinc-200">Key Levels</h3>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                                <LevelCell label="S2" value={activeTfSignal?.indicators.pivotS2} />
+                                <LevelCell label="S1" value={activeTfSignal?.indicators.pivotS1} />
+                                <LevelCell label="Pivot" value={activeTfSignal?.indicators.pivotPoint} highlight />
+                                <LevelCell label="R1" value={activeTfSignal?.indicators.pivotR1} />
+                                <LevelCell label="R2" value={activeTfSignal?.indicators.pivotR2} />
+                            </div>
+                        </section>
+                    </div>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                        <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+                            <div className="mb-3 flex items-center gap-2">
+                                <Target className="w-4 h-4 text-amber-300" />
+                                <h3 className="text-sm font-black uppercase tracking-wider text-zinc-200">Futures Setup</h3>
+                            </div>
+                            <FuturesSetupCard setup={activeSetup} />
+                        </section>
+
+                        <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+                            <div className="mb-3 flex items-center gap-2">
+                                <Layers className="w-4 h-4 text-fuchsia-300" />
+                                <h3 className="text-sm font-black uppercase tracking-wider text-zinc-200">Options Advisor</h3>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 mb-3">
+                                <MiniBox label="PCR" value={data.optionChainAnalysis ? data.optionChainAnalysis.pcr.toFixed(2) : '--'} />
+                                <MiniBox label="IV Rank" value={ivRank != null ? `${ivRank.toFixed(1)}%` : '--'} />
+                            </div>
+                            <div className="space-y-2">
+                                {data.optionsRecommendations.slice(0, 3).map((rec, idx) => (
+                                    <div key={`${rec.optionType}-${rec.strikePrice}-${idx}`} className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="text-xs font-black text-zinc-200">
+                                                {rec.action} {rec.optionType} INR {formatPrice(rec.strikePrice)}
+                                            </div>
+                                            <span className={`text-[10px] font-black ${confidenceTextClass(rec.riskLevel)}`}>{rec.riskLevel}</span>
+                                        </div>
+                                        <p className="mt-1 text-xs text-zinc-400">{rec.rationale}</p>
                                     </div>
                                 ))}
                             </div>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center py-8 text-zinc-600">
-                                <Shield className="w-8 h-8 mb-2" />
-                                <span className="text-sm font-bold">No options recommendations</span>
-                            </div>
-                        )}
+                        </section>
                     </div>
-                </div>
-            )}
 
-            {/* Disclaimer */}
-            <div className="text-[10px] uppercase tracking-wider font-bold text-amber-600 dark:text-amber-400 border border-amber-500/30 bg-amber-500/10 rounded-lg px-3 py-2 text-center">
-                ⚠ Trading signals are for informational purposes only. Not financial advice. Always perform your own analysis and manage risk.
-            </div>
-        </div>
-    );
-}
-
-// ─── Sub-Components ────────────────────────────────────────────
-
-function MiniStat({
-    label,
-    value,
-    valueClass = 'text-zinc-100',
-    subValue,
-    subValueClass = 'text-zinc-500'
-}: {
-    label: string;
-    value: string;
-    valueClass?: string;
-    subValue?: string;
-    subValueClass?: string;
-}) {
-    return (
-        <div className="bg-zinc-800/30 border border-zinc-800 rounded-lg p-3">
-            <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold mb-1">{label}</div>
-            <div className={`text-sm font-black ${valueClass}`}>{value}</div>
-            {subValue && <div className={`text-[10px] font-bold mt-1 ${subValueClass}`}>{subValue}</div>}
-        </div>
-    );
-}
-
-function TimeframeCard({ tf, expanded, onToggle }: { tf: TimeframeSignal; expanded: boolean; onToggle: () => void }) {
-    return (
-        <div className={`rounded-xl border transition-all duration-300 cursor-pointer ${signalBg(tf.bias)} hover:brightness-110`} onClick={onToggle}>
-            <div className="p-4">
-                <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-black text-zinc-300 uppercase">{tf.timeframe}</span>
-                    <SignalIcon signal={tf.bias} className="w-5 h-5" />
-                </div>
-                <div className={`text-lg font-black ${signalColor(tf.bias)}`}>{tf.bias}</div>
-                <div className="flex items-center gap-1 mt-1">
-                    <span className={`text-xs font-mono ${tf.priceChangePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {tf.priceChangePercent >= 0 ? '+' : ''}{tf.priceChangePercent.toFixed(2)}%
-                    </span>
-                </div>
-                <div className="text-[10px] text-zinc-600">vs prev close</div>
-                <div className="mt-2 flex items-center justify-between">
-                    <span className="text-[10px] text-zinc-600">Score: {tf.biasScore > 0 ? '+' : ''}{tf.biasScore}</span>
-                    {expanded ? <ChevronUp className="w-3 h-3 text-zinc-600" /> : <ChevronDown className="w-3 h-3 text-zinc-600" />}
-                </div>
-            </div>
-
-            {expanded && (
-                <div className="border-t border-zinc-800/50 p-3 space-y-1.5 bg-zinc-950/30 rounded-b-xl">
-                    <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] text-zinc-500">Interval Move</span>
-                        <span className={`text-[10px] font-bold ${tf.intervalPriceChangePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {tf.intervalPriceChangePercent >= 0 ? '+' : ''}{tf.intervalPriceChangePercent.toFixed(2)}%
-                        </span>
-                    </div>
-                    {tf.signals.map((s, i) => (
-                        <div key={i} className="flex items-center justify-between">
-                            <span className="text-[10px] text-zinc-500 truncate mr-2">{s.name}</span>
-                            <span className={`text-[10px] font-bold ${signalColor(s.signal)}`}>{s.signal}</span>
+                    <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+                        <div className="mb-3 flex items-center gap-2">
+                            <BarChart3 className="w-4 h-4 text-cyan-300" />
+                            <h3 className="text-sm font-black uppercase tracking-wider text-zinc-200">Indicator Panel</h3>
                         </div>
-                    ))}
-                </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                            <IndicatorTile label="RSI" value={activeTfSignal?.indicators.rsi} />
+                            <IndicatorTile label="MACD" value={activeTfSignal?.indicators.macdHistogram} />
+                            <IndicatorTile label="BB Mid" value={activeTfSignal?.indicators.bollingerMiddle} />
+                            <IndicatorTile label="ATR" value={activeTfSignal?.indicators.atr} />
+                        </div>
+                        <details className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+                            <summary className="cursor-pointer text-xs font-black uppercase tracking-wider text-zinc-300">Secondary Indicators</summary>
+                            <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-zinc-400">
+                                <div>EMA20: {activeTfSignal?.indicators.ema20?.toFixed(2) ?? '--'}</div>
+                                <div>EMA50: {activeTfSignal?.indicators.ema50?.toFixed(2) ?? '--'}</div>
+                                <div>StochK: {activeTfSignal?.indicators.stochK?.toFixed(2) ?? '--'}</div>
+                                <div>ADX: {activeTfSignal?.indicators.adx?.toFixed(2) ?? '--'}</div>
+                            </div>
+                        </details>
+                    </section>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                        <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+                            <div className="mb-3 flex items-center gap-2">
+                                <Newspaper className="w-4 h-4 text-blue-300" />
+                                <h3 className="text-sm font-black uppercase tracking-wider text-zinc-200">News Feed</h3>
+                            </div>
+                            <div className="space-y-2 text-sm text-zinc-300">
+                                {miniNews.map((line, idx) => (
+                                    <div key={`news-${idx}`} className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2">{line}</div>
+                                ))}
+                            </div>
+                        </section>
+
+                        <section className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+                            <div className="mb-3 flex items-center gap-2">
+                                <MessagesSquare className="w-4 h-4 text-violet-300" />
+                                <h3 className="text-sm font-black uppercase tracking-wider text-zinc-200">Sentiment / Social Buzz</h3>
+                            </div>
+                            <div className="space-y-2 text-sm text-zinc-300">
+                                {sentimentFeed.map((line, idx) => (
+                                    <div key={`sent-${idx}`} className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2">{line}</div>
+                                ))}
+                            </div>
+                        </section>
+                    </div>
+
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-amber-300">
+                        Trading signals are informational only. Use risk controls and independent confirmation.
+                    </div>
+                </>
             )}
         </div>
     );
 }
 
-function FuturesCard({ setup }: { setup: NonNullable<SignalBotResponse['futuresSetup']> }) {
-    const isBuy = setup.direction === 'BUY';
+function TopStat({ label, value, tone }: { label: string; value: string; tone: SignalDirection }) {
     return (
-        <div className="space-y-4">
-            <div className={`flex items-center gap-3 p-4 rounded-xl border ${isBuy ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
-                <div className={`p-2.5 rounded-lg ${isBuy ? 'bg-emerald-500' : 'bg-red-500'}`}>
-                    {isBuy ? <ArrowUpRight className="w-5 h-5 text-white" /> : <ArrowDownRight className="w-5 h-5 text-white" />}
-                </div>
-                <div>
-                    <div className={`text-xl font-black ${isBuy ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {setup.direction} FUTURES
-                    </div>
-                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">
-                        {setup.timeframe ? `${setup.timeframe} Setup • ` : ''}MCX Natural Gas Futures
-                    </div>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-                <LevelBox label="Entry" value={`₹${formatPrice(setup.entry)}`} color="text-zinc-100" />
-                <LevelBox label="Stop Loss" value={`₹${formatPrice(setup.stopLoss)}`} color="text-red-400" />
-                <LevelBox label="Target 1" value={`₹${formatPrice(setup.target1)}`} color="text-emerald-400" />
-                <LevelBox label="Target 2" value={`₹${formatPrice(setup.target2)}`} color="text-cyan-400" />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-                <div className="bg-zinc-800/30 border border-zinc-800 rounded-lg p-3">
-                    <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold mb-1">Risk:Reward</div>
-                    <div className={`text-sm font-black ${setup.riskRewardRatio >= 1.5 ? 'text-emerald-400' : setup.riskRewardRatio >= 1 ? 'text-amber-400' : 'text-red-400'}`}>
-                        1:{setup.riskRewardRatio.toFixed(2)}
-                    </div>
-                </div>
-                <div className="bg-zinc-800/30 border border-zinc-800 rounded-lg p-3">
-                    <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold mb-1">ATR(14)</div>
-                    <div className="text-sm font-black text-zinc-300">₹{formatPrice(setup.atrValue)}</div>
-                </div>
-            </div>
-
-            <div className="bg-zinc-800/20 border border-zinc-800/50 rounded-lg p-3">
-                <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold mb-1">Rationale</div>
-                <p className="text-xs text-zinc-400 leading-relaxed">{setup.rationale}</p>
-            </div>
+        <div className={`rounded-lg border p-2 ${signalBorderClass(tone)}`}>
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-black">{label}</div>
+            <div className={`mt-1 text-xs font-black ${signalTextClass(tone)}`}>{value}</div>
         </div>
     );
 }
 
-function LevelBox({ label, value, color }: { label: string; value: string; color: string }) {
+function LevelCell({ label, value, highlight = false }: { label: string; value: number | null | undefined; highlight?: boolean }) {
     return (
-        <div className="bg-zinc-800/30 border border-zinc-800 rounded-lg p-3">
-            <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold mb-1">{label}</div>
-            <div className={`text-base font-black ${color}`}>{value}</div>
+        <div className={`rounded-lg border p-2 ${highlight ? 'border-cyan-500/40 bg-cyan-500/10' : 'border-zinc-800 bg-zinc-900/60'}`}>
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-black">{label}</div>
+            <div className="text-sm font-black text-zinc-100">{Number.isFinite(value as number) ? formatPrice(Number(value)) : '--'}</div>
         </div>
     );
 }
 
-const HEATMAP_INDICATORS = ['RSI(14)', 'MACD', 'EMA(20/50)', 'Stochastic', 'Bollinger', 'VWAP', 'Pivot Points'];
-
-function IndicatorHeatmap({ timeframes }: { timeframes: TimeframeSignal[] }) {
+function IndicatorTile({ label, value }: { label: string; value: number | null | undefined }) {
     return (
-        <table className="w-full text-[10px]">
-            <thead>
-                <tr>
-                    <th className="text-left text-zinc-600 font-bold uppercase tracking-wider py-2 pr-4">Indicator</th>
-                    {timeframes.map(tf => (
-                        <th key={tf.timeframe} className="text-center text-zinc-600 font-bold uppercase tracking-wider py-2 px-2">{tf.timeframe}</th>
-                    ))}
-                </tr>
-            </thead>
-            <tbody>
-                {HEATMAP_INDICATORS.map(name => (
-                    <tr key={name} className="border-t border-zinc-800/30">
-                        <td className="text-zinc-400 font-bold py-2 pr-4 whitespace-nowrap">{name}</td>
-                        {timeframes.map(tf => {
-                            const s = tf.signals.find(sig => sig.name === name);
-                            const signal = s?.signal || 'HOLD';
-                            return (
-                                <td key={tf.timeframe} className="text-center py-2 px-2">
-                                    <span className={`inline-block w-6 h-6 rounded-md leading-6 text-center font-black ${signal === 'BUY' ? 'bg-emerald-500/20 text-emerald-400' : signal === 'SELL' ? 'bg-red-500/20 text-red-400' : 'bg-zinc-800 text-zinc-600'}`}>
-                                        {signal === 'BUY' ? '▲' : signal === 'SELL' ? '▼' : '–'}
-                                    </span>
-                                </td>
-                            );
-                        })}
-                    </tr>
-                ))}
-            </tbody>
-        </table>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-2">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-black">{label}</div>
+            <div className="text-sm font-black text-zinc-100">{Number.isFinite(value as number) ? Number(value).toFixed(2) : '--'}</div>
+        </div>
     );
 }
 
+function MiniBox({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-2">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-black">{label}</div>
+            <div className="text-sm font-black text-zinc-100">{value}</div>
+        </div>
+    );
+}
+
+function FuturesSetupCard({ setup }: { setup: FuturesSetup | null }) {
+    if (!setup) {
+        return (
+            <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3 text-sm text-zinc-400">
+                No active futures setup.
+            </div>
+        );
+    }
+
+    const directionTone: SignalDirection = setup.direction;
+    const isHold = setup.direction === 'HOLD';
+
+    return (
+        <div className={`rounded-xl border p-3 ${signalBorderClass(directionTone)}`}>
+            <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center rounded-full bg-cyan-500/20 border border-cyan-500/40 px-2.5 py-1 text-[18px] font-bold leading-none text-cyan-200">
+                        {setup.timeframe || '1D'}
+                    </span>
+                    <div className={`text-lg font-black ${signalTextClass(directionTone)}`}>{setup.direction}</div>
+                </div>
+                {isHold ? <HoldIcon /> : <DirectionIcon direction={setup.direction} />}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 mb-3">
+                <MiniBox label="Entry" value={formatPrice(setup.entry)} />
+                <MiniBox label="Stop" value={formatPrice(setup.stopLoss)} />
+                <MiniBox label="Target 1" value={formatPrice(setup.target1)} />
+                <MiniBox label="Target 2" value={formatPrice(setup.target2)} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 mb-3">
+                <MiniBox label="R:R" value={`1:${setup.riskRewardRatio.toFixed(2)}`} />
+                <MiniBox label="ATR" value={formatPrice(setup.atrValue)} />
+            </div>
+
+            <details className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+                <summary className="cursor-pointer text-xs font-black uppercase tracking-wider text-zinc-300">Rationale</summary>
+                <p className="mt-2 text-xs text-zinc-400 leading-relaxed">{setup.rationale}</p>
+            </details>
+        </div>
+    );
+}

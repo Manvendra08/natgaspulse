@@ -13,6 +13,8 @@ interface StorageWidgetProps {
     releaseDate: string;
     nextReleaseDate?: string;
     forecastChange?: number;
+    isLiveUpdating?: boolean;
+    lastFetchedAt?: string;
     isLoading?: boolean;
 }
 
@@ -27,6 +29,8 @@ export default function StorageWidget({
     releaseDate,
     nextReleaseDate,
     forecastChange = 0,
+    isLiveUpdating = false,
+    lastFetchedAt,
     isLoading = false
 }: StorageWidgetProps) {
     const isPositiveDeviation = deviation > 0;
@@ -58,6 +62,15 @@ export default function StorageWidget({
             year: 'numeric'
         })
         : 'Calculating...';
+    const formattedLastFetched = lastFetchedAt
+        ? new Date(lastFetchedAt).toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        })
+        : '--';
 
     if (isLoading) {
         return (
@@ -90,6 +103,13 @@ export default function StorageWidget({
                     <h2 className="text-xl md:text-2xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">Natural Gas Storage Data</h2>
                 </div>
 
+                {isLiveUpdating && (
+                    <div className="mb-2 inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-300">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        Live updating...
+                    </div>
+                )}
+
                 <div className="flex flex-wrap items-center gap-x-3 md:gap-x-4 gap-y-1 text-[10px] md:text-[11px] font-bold text-zinc-500 dark:text-zinc-400">
                     <div className="flex items-center gap-1">
                         <span>for</span>
@@ -99,6 +119,11 @@ export default function StorageWidget({
                     <div className="flex items-center gap-1">
                         <span>Released:</span>
                         <span className="text-zinc-800 dark:text-zinc-200">{formattedRelease}</span>
+                    </div>
+                    <div className="hidden sm:block text-zinc-300 dark:text-zinc-700">|</div>
+                    <div className="flex items-center gap-1">
+                        <span>Last fetched:</span>
+                        <span className="text-zinc-800 dark:text-zinc-200">{formattedLastFetched}</span>
                     </div>
                 </div>
             </div>

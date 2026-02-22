@@ -26,6 +26,20 @@ yarn-error.log*
 
 # local env files
 .env*.local
+.env
+.env.example
+
+# AI Assistant configs
+.agent/
+.roo/
+
+# Logs
+*.log
+logs/
+
+# Data
+data/
+error_response.json
 
 # vercel
 .vercel

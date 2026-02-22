@@ -5,7 +5,7 @@ import Navbar from '@/components/layout/Navbar';
 import { IndianRupee, AlertCircle } from 'lucide-react';
 import MCXPublicDataPanel from '@/components/mcx/MCXPublicDataPanel';
 import MCXAdvancedChart from '@/components/mcx/MCXAdvancedChart';
-import MCXSeasonalitySpreadPanel from '@/components/mcx/MCXSeasonalitySpreadPanel';
+import MCXProTraderMonitorPanel from '@/components/mcx/MCXProTraderMonitorPanel';
 import type { McxPublicDataResponse } from '@/lib/types/mcx';
 
 export default function NatGasMcxPage() {
@@ -31,7 +31,7 @@ export default function NatGasMcxPage() {
         <div className="min-h-screen bg-white dark:bg-zinc-950 transition-colors duration-300">
             <Navbar />
 
-            <div className="p-4 md:p-8 max-w-[1600px] mx-auto">
+            <div className="p-4 md:p-8 max-w-[1600px] mx-auto min-w-0">
                 <div className="mb-6 md:mb-8 text-center md:text-left">
                     <div className="flex flex-col md:flex-row items-center gap-3 mb-2 md:mb-1">
                         <IndianRupee className="w-8 h-8 md:w-10 md:h-10 text-pink-500" />
@@ -40,7 +40,7 @@ export default function NatGasMcxPage() {
                         </h1>
                     </div>
                     <p className="text-zinc-500 dark:text-zinc-400 text-xs md:text-sm font-medium uppercase tracking-widest">
-                        Public MCX data, technical analysis terminal, seasonality and EIA spread tools
+                        Public MCX data, technical analysis terminal and pro trader monitor
                     </p>
                 </div>
 
@@ -63,11 +63,7 @@ export default function NatGasMcxPage() {
                     <div className="grid grid-cols-1 gap-6">
                         <MCXPublicDataPanel data={mcxData} />
                         <MCXAdvancedChart data={mcxData.historical} />
-                        <MCXSeasonalitySpreadPanel
-                            historical={mcxData.historical}
-                            eiaHenryHub={mcxData.eiaHenryHub}
-                            usdinr={mcxData.usdinr}
-                        />
+                        <MCXProTraderMonitorPanel data={mcxData} />
                     </div>
                 )}
             </div>

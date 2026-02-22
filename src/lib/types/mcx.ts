@@ -12,6 +12,7 @@ export interface McxContractSpec {
 export interface McxExpiryItem {
     contract: string;
     expiryDate: string;
+    expiryType: 'FUT' | 'OPT';
 }
 
 export interface McxPricePoint {
@@ -28,7 +29,7 @@ export interface McxPricePoint {
 
 export interface McxSourceStatus {
     officialAvailable: boolean;
-    provider: 'rupeezy-active-future' | 'mcx-official' | 'fallback-yahoo';
+    provider: 'rupeezy-active-future' | 'tradingview-scanner' | 'moneycontrol-scrape' | 'mcx-official' | 'fallback-yahoo';
     delayedByMinutes: number;
     lastSyncAt: string;
     message: string;
@@ -44,6 +45,37 @@ export interface McxPublicDataResponse {
         asOf: string;
         delayMinutes: number;
     };
+    henryHubLive: {
+        price: number;
+        change: number;
+        changePercent: number;
+        asOf: string;
+        source: 'yahoo-finance-ng-f' | 'eia-futures-daily';
+    };
+    moneycontrolLive: {
+        available: boolean;
+        price: number | null;
+        openInterest: number | null;
+        volume: number | null;
+        bid: number | null;
+        ask: number | null;
+        asOf: string | null;
+        sourceUrl: string;
+    };
+    activeMonth: {
+        contract: string;
+        price: number;
+        change: number;
+        changePercent: number;
+        asOf: string;
+    };
+    nextMonth: {
+        contract: string;
+        price: number;
+        change: number;
+        changePercent: number;
+        asOf: string;
+    } | null;
     contractSpec: McxContractSpec;
     expiryCalendar: McxExpiryItem[];
     latestSettlement: {

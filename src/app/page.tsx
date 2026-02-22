@@ -2,6 +2,7 @@ import Link from 'next/link';
 import Logo from '@/components/Logo';
 import HomeAuthActions from '@/components/home/HomeAuthActions';
 import HomeTopNav from '@/components/home/HomeTopNav';
+import PremiumFeaturesSection from '@/components/home/PremiumFeaturesSection';
 import {
     Activity,
     ArrowRight,
@@ -97,14 +98,14 @@ export default function Home() {
                         </p>
 
                         <div className="mt-8 flex flex-wrap items-center gap-3">
-                            <Link href="/dashboard" className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white font-bold">
+                            <Link href="/dashboard" className="inline-flex items-center gap-2 min-h-11 px-5 py-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white font-bold">
                                 Open Dashboard
                                 <ArrowRight className="h-4 w-4" />
                             </Link>
-                            <Link href="/trading-zone" className="px-5 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold dark:bg-zinc-700 dark:hover:bg-zinc-600">
+                            <Link href="/trading-zone" className="inline-flex items-center min-h-11 px-5 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-bold dark:bg-zinc-700 dark:hover:bg-zinc-600">
                                 Start Trading Zone
                             </Link>
-                            <Link href="#plans" className="px-5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-100 font-bold">
+                            <Link href="#plans" className="inline-flex items-center min-h-11 px-5 py-2.5 rounded-lg border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-100 font-bold">
                                 View Launch Plans
                             </Link>
                         </div>
@@ -144,7 +145,9 @@ export default function Home() {
                 </div>
             </section>
 
-            <section id="plans" className="max-w-[1200px] mx-auto px-4 md:px-8 py-14 md:py-16">
+            <PremiumFeaturesSection />
+
+            <section id="plans" className="max-w-[1200px] mx-auto px-4 md:px-8 pb-14 md:pb-16">
                 <div className="rounded-3xl border border-zinc-200 dark:border-zinc-800 bg-white/85 dark:bg-zinc-900/45 p-8 md:p-10">
                     <div className="max-w-3xl">
                         <h2 className="text-3xl md:text-4xl font-black tracking-tight text-zinc-900 dark:text-zinc-100">
@@ -188,7 +191,7 @@ export default function Home() {
 
                                 <Link
                                     href="/dashboard"
-                                    className={`mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 font-bold ${plan.highlight
+                                    className={`mt-6 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 font-bold ${plan.highlight
                                         ? 'bg-cyan-600 hover:bg-cyan-700 text-white'
                                         : 'bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-zinc-700 dark:hover:bg-zinc-600'
                                         }`}
@@ -220,7 +223,7 @@ export default function Home() {
                             </span>
                         </div>
                     </div>
-                    <Link href="/dashboard" className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white font-black">
+                    <Link href="/dashboard" className="inline-flex min-h-11 items-center justify-center gap-2 px-6 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white font-black">
                         Launch Workspace
                         <ArrowRight className="h-4 w-4" />
                     </Link>

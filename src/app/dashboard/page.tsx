@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import StorageWidget from '@/components/widgets/StorageWidget';
 import WeatherWidget from '@/components/widgets/WeatherWidget';
 import WeatherMap from '@/components/widgets/WeatherMap';
@@ -46,6 +46,28 @@ interface WeatherData {
 
 type ModelMode = 'simple' | 'advanced';
 
+function getNyClock(now: Date = new Date()) {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+    const parts = formatter.formatToParts(now);
+    const weekday = parts.find((p) => p.type === 'weekday')?.value || '';
+    const hour = Number(parts.find((p) => p.type === 'hour')?.value || '0');
+    const minute = Number(parts.find((p) => p.type === 'minute')?.value || '0');
+    return { weekday, hour, minute };
+}
+
+function isEiaReleaseWindow(now: Date = new Date()) {
+    const ny = getNyClock(now);
+    if (ny.weekday !== 'Thu') return false;
+    const totalMinutes = ny.hour * 60 + ny.minute;
+    return totalMinutes >= 9 * 60 && totalMinutes < 11 * 60;
+}
+
 export default function DashboardPage() {
     const [storageData, setStorageData] = useState<StorageData | null>(null);
     const [priceData, setPriceData] = useState<PriceData | null>(null);
@@ -57,23 +79,41 @@ export default function DashboardPage() {
 
     const [error, setError] = useState<string | null>(null);
     const [predictorModel, setPredictorModel] = useState<ModelMode>('simple');
+    const [storageLastFetchedAt, setStorageLastFetchedAt] = useState<string | null>(null);
+    const [storageLiveUpdating, setStorageLiveUpdating] = useState<boolean>(false);
+    const latestStoragePeriodRef = useRef<string | null>(null);
+    const hasStorageLoadedRef = useRef(false);
+
+    const fetchStorageData = useCallback(async () => {
+        try {
+            if (!hasStorageLoadedRef.current) {
+                setIsLoadingStorage(true);
+            }
+            const res = await fetch('/api/eia/storage', { cache: 'no-store' });
+            const data = await res.json();
+            if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+
+            const nextPeriod = String(data.weekEndingDate || '');
+            const prevPeriod = latestStoragePeriodRef.current;
+            const periodChanged = prevPeriod !== null && nextPeriod !== prevPeriod;
+
+            latestStoragePeriodRef.current = nextPeriod;
+            setStorageData(data);
+            setStorageLastFetchedAt(new Date().toISOString());
+            hasStorageLoadedRef.current = true;
+
+            if (periodChanged) {
+                setError(null);
+            }
+        } catch (err) {
+            console.error('Storage fetch error:', err);
+            setError('Failed to load storage data');
+        } finally {
+            setIsLoadingStorage(false);
+        }
+    }, []);
 
     useEffect(() => {
-        const fetchStorageData = () => {
-            setIsLoadingStorage(true);
-            fetch('/api/eia/storage')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.error) throw new Error(data.error);
-                    setStorageData(data);
-                })
-                .catch(err => {
-                    console.error('Storage fetch error:', err);
-                    setError('Failed to load storage data');
-                })
-                .finally(() => setIsLoadingStorage(false));
-        };
-
         const fetchPriceData = () => {
             setIsLoadingPrice(true);
             fetch('/api/market/prices?range=5y')
@@ -106,15 +146,34 @@ export default function DashboardPage() {
         fetchPriceData();
         fetchWeatherData();
 
-        const dailyWeatherRefresh = setInterval(fetchWeatherData, 24 * 60 * 60 * 1000);
-        return () => clearInterval(dailyWeatherRefresh);
-    }, []);
+        const weatherRefresh = setInterval(fetchWeatherData, 24 * 60 * 60 * 1000);
+        const storageBaselineRefresh = setInterval(fetchStorageData, 60 * 60 * 1000);
+        const releaseWindowTicker = setInterval(() => {
+            const inWindow = isEiaReleaseWindow();
+            setStorageLiveUpdating(inWindow);
+            if (inWindow) {
+                fetchStorageData();
+            }
+        }, 5 * 60 * 1000);
+        const releaseWindowState = setInterval(() => {
+            setStorageLiveUpdating(isEiaReleaseWindow());
+        }, 60 * 1000);
+
+        setStorageLiveUpdating(isEiaReleaseWindow());
+
+        return () => {
+            clearInterval(weatherRefresh);
+            clearInterval(storageBaselineRefresh);
+            clearInterval(releaseWindowTicker);
+            clearInterval(releaseWindowState);
+        };
+    }, [fetchStorageData]);
 
     return (
         <div className="min-h-screen bg-white dark:bg-zinc-950 transition-colors duration-300">
             <Navbar />
 
-            <div className="p-4 md:p-8 max-w-[1600px] mx-auto">
+            <div className="p-4 md:p-8 max-w-[1600px] mx-auto min-w-0">
                 {/* Header */}
                 <div className="mb-6 md:mb-8 text-center md:text-left">
                     <div className="flex flex-col md:flex-row items-center gap-3 mb-2 md:mb-1">
@@ -149,6 +208,8 @@ export default function DashboardPage() {
                         deviationPercent={storageData?.deviationPercent || '0'}
                         weekEndingDate={storageData?.weekEndingDate || new Date().toISOString()}
                         releaseDate={storageData?.releaseDate || new Date().toISOString()}
+                        isLiveUpdating={storageLiveUpdating}
+                        lastFetchedAt={storageLastFetchedAt || undefined}
                         isLoading={isLoadingStorage}
                     />
 
@@ -229,13 +290,13 @@ export default function DashboardPage() {
 
                 {/* Main Analysis Row - Technical Terminal & Storage History */}
                 <div id="charts" className="flex flex-col gap-8 mb-8">
-                    <div className="w-full">
+                    <div className="w-full min-w-0">
                         <TechnicalChartWidget
                             data={priceData?.historicalPrices || []}
                             isLoading={isLoadingPrice}
                         />
                     </div>
-                    <div className="w-full">
+                    <div className="w-full min-w-0">
                         <StorageTrendChart
                             data={storageData?.historicalData || []}
                             priceData={priceData?.historicalPrices || []}
@@ -252,6 +313,7 @@ export default function DashboardPage() {
                     />
                     <WeatherMap />
                 </div>
+
             </div>
         </div>
     );

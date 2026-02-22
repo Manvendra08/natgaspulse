@@ -109,7 +109,8 @@ interface OptionChainResponse {
     strikes: OptionChainRow[];
 }
 
-const REFRESH_INTERVAL = 30 * 60 * 1000;
+const PRICE_REFRESH_INTERVAL_MS = 5 * 1000;
+const POSITION_REFRESH_INTERVAL_MS = 15 * 1000;
 const OAUTH_PENDING_KEY = 'zerodha_oauth_pending_v1';
 
 type PendingOAuthCredentials = {
@@ -180,6 +181,16 @@ function formatSigned(value?: number | null, decimals = 2): string {
     return `${n >= 0 ? '+' : ''}${n.toFixed(decimals)}`;
 }
 
+function formatLiveTimestamp(value: Date | null): string {
+    if (!value) return '--:--:--';
+    return value.toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
+}
+
 function getFutureMonthLabel(expiry?: string | null): string {
     if (!expiry) return 'FUT';
     const ts = new Date(`${expiry}T00:00:00Z`).getTime();
@@ -193,10 +204,15 @@ export default function TradingZone() {
     const [optionChainWarning, setOptionChainWarning] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [countdown, setCountdown] = useState(REFRESH_INTERVAL / 1000);
+    const [lastPriceUpdated, setLastPriceUpdated] = useState<Date | null>(null);
+    const [lastPositionsUpdated, setLastPositionsUpdated] = useState<Date | null>(null);
+    // credentials holds only what the user types in the form — never raw secrets from DB
     const [credentials, setCredentials] = useState({ apiKey: '', apiSecret: '', accessToken: '' });
     const [loginMethod, setLoginMethod] = useState<'TOKEN' | 'OAUTH'>('OAUTH');
+    // hasStoredApiSetup = DB has encrypted api_key + api_secret for this user
     const [hasStoredApiSetup, setHasStoredApiSetup] = useState(false);
+    // hasStoredAccessToken = DB has an encrypted access_token (session may still be valid)
+    const [hasStoredAccessToken, setHasStoredAccessToken] = useState(false);
     const [isConfigured, setIsConfigured] = useState(false);
     const [isProcessingLogin, setIsProcessingLogin] = useState(false);
     const [positionView, setPositionView] = useState<'COMPACT' | 'DETAILED'>('COMPACT');
@@ -222,18 +238,19 @@ export default function TradingZone() {
             if (payload?.warning) {
                 setError(String(payload.warning));
             }
+            // GET /api/profile/zerodha returns masked flags — never raw secrets
             const saved = payload?.credentials;
             if (saved) {
-                const merged = {
-                    apiKey: saved.apiKey || '',
-                    apiSecret: saved.apiSecret || '',
-                    accessToken: saved.accessToken || ''
-                };
-                setCredentials(merged);
-                if (merged.apiKey && merged.apiSecret) {
+                // apiKeyMasked = "****xxxx" — confirms key is saved
+                const keyStored = Boolean(saved.apiKeyMasked && saved.apiKeyMasked !== '****');
+                const secretStored = Boolean(saved.hasApiSecret);
+                const tokenStored = Boolean(saved.hasAccessToken);
+                if (keyStored && secretStored) {
                     setHasStoredApiSetup(true);
                 }
-                if (merged.accessToken && merged.apiKey) {
+                if (tokenStored) {
+                    setHasStoredAccessToken(true);
+                    // If we have a stored access token, auto-configure (positions fetched server-side)
                     setIsConfigured(true);
                 }
             }
@@ -278,7 +295,7 @@ export default function TradingZone() {
         if (!apiKey || !apiSecret) {
             setError(
                 profileWarning ||
-                    'Missing API Key/Secret in profile. Please enter credentials and start login again.'
+                'Missing API Key/Secret in profile. Please enter credentials and start login again.'
             );
             setIsProcessingLogin(false);
             return;
@@ -304,29 +321,17 @@ export default function TradingZone() {
                 throw new Error(response.error || 'Token exchange failed');
             }
 
-            const newCreds = { apiKey, apiSecret, accessToken: response.accessToken };
-            setCredentials(newCreds);
+            // Token exchange succeeded — access token is now stored in DB by /api/auth/zerodha
+            // We never receive the raw access token on the client
             if (apiKey && apiSecret) {
                 setHasStoredApiSetup(true);
             }
-
-            const saveRes = await fetch('/api/profile/zerodha', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ credentials: newCreds })
-            });
-            if (!saveRes.ok) {
-                const saveJson = await saveRes.json().catch(() => null);
-                setError(
-                    saveJson?.error ||
-                        'Connected to Zerodha, but failed to persist credentials on server.'
-                );
-            }
-
+            setHasStoredAccessToken(true);
             setIsConfigured(true);
             clearPendingOAuthCredentials();
             window.history.replaceState({}, document.title, window.location.pathname);
             fetchPositions();
+            fetchOptionChain();
         } catch (err: any) {
             if (err?.name === 'AbortError') {
                 setError('Login aborted.');
@@ -389,55 +394,58 @@ export default function TradingZone() {
             return;
         }
 
-        let apiKey = credentials.apiKey.trim();
-        let apiSecret = credentials.apiSecret.trim();
-        if (!apiKey || !apiSecret) {
-            const profileResult = await loadCredentialsFromProfile();
-            apiKey = apiKey || String(profileResult.payload?.credentials?.apiKey || '').trim();
-            apiSecret = apiSecret || String(profileResult.payload?.credentials?.apiSecret || '').trim();
-        }
-
-        if (!apiKey) {
+        if (!hasStoredApiSetup && !credentials.apiKey.trim()) {
             setError('API Key not found in profile. Complete one-time API setup first.');
             return;
         }
 
-        const newCreds = { apiKey, apiSecret, accessToken };
-        setCredentials(newCreds);
-        setIsConfigured(true);
-        if (apiKey && apiSecret) {
+        // Save the manually-entered access token to DB (encrypted server-side)
+        // Also save api_key if provided
+        const saveBody: Record<string, string> = { accessToken };
+        if (credentials.apiKey.trim()) saveBody.apiKey = credentials.apiKey.trim();
+        if (credentials.apiSecret.trim()) saveBody.apiSecret = credentials.apiSecret.trim();
+
+        try {
+            const saveRes = await fetch('/api/profile/zerodha', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(saveBody)
+            });
+            if (!saveRes.ok) {
+                const saveJson = await saveRes.json().catch(() => null);
+                setError(saveJson?.error || 'Failed to save access token to profile.');
+                return;
+            }
+        } catch {
+            setError('Failed to save access token to profile.');
+            return;
+        }
+
+        if (credentials.apiKey.trim() && credentials.apiSecret.trim()) {
             setHasStoredApiSetup(true);
         }
-        fetch('/api/profile/zerodha', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ credentials: newCreds })
-        }).catch(() => null);
+        setHasStoredAccessToken(true);
+        setIsConfigured(true);
         fetchPositions();
+        fetchOptionChain();
     };
 
     const handleLogout = () => {
         setIsConfigured(false);
-        setHasStoredApiSetup(false);
-        setCredentials(prev => ({ ...prev, accessToken: '' }));
+        setHasStoredAccessToken(false);
+        setCredentials({ apiKey: '', apiSecret: '', accessToken: '' });
         clearPendingOAuthCredentials();
-        fetch('/api/profile/zerodha', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ credentials: {} })
-        }).catch(() => null);
+        // Clear only the access token from DB — keep api_key/secret for next login
+        fetch('/api/auth/zerodha', { method: 'DELETE' }).catch(() => null);
         setData(null);
         setOptionChain(null);
         setOptionChainWarning(null);
+        setLastPriceUpdated(null);
+        setLastPositionsUpdated(null);
         setError(null);
     };
 
-    const fetchPositions = useCallback(async () => {
-        const currentCreds = credentials;
-        if (!currentCreds.apiKey || !currentCreds.accessToken) {
-            return;
-        }
-
+    const fetchOptionChain = useCallback(async () => {
         const chainPayload: Record<string, unknown> = {
             exchange: 'MCX',
             underlying: 'NATURALGAS',
@@ -445,21 +453,44 @@ export default function TradingZone() {
         };
 
         try {
-            setLoading(true);
-            setError(null);
+            const chainRes = await fetch('/api/option-chain', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(chainPayload)
+            });
 
-            const [res, chainRes] = await Promise.all([
-                fetch('/api/positions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ apiKey: currentCreds.apiKey, accessToken: currentCreds.accessToken })
-                }),
-                fetch('/api/option-chain', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(chainPayload)
-                })
-            ]);
+            const chainJson = await chainRes.json().catch(() => null);
+            if (chainRes.ok && chainJson?.strikes) {
+                setOptionChain(chainJson as OptionChainResponse);
+                setOptionChainWarning(chainJson?.quoteError || null);
+                setLastPriceUpdated(chainJson?.fetchedAt ? new Date(chainJson.fetchedAt) : new Date());
+            } else {
+                setOptionChain(null);
+                setOptionChainWarning(
+                    chainJson?.error || 'Live option chain unavailable. Position diagnostics use position feed only.'
+                );
+            }
+        } catch {
+            setOptionChain(null);
+            setOptionChainWarning('Live option chain unavailable. Position diagnostics use position feed only.');
+        }
+    }, []);
+
+    const fetchPositions = useCallback(async () => {
+        // Positions are fetched server-side using the stored (encrypted) access token
+        // No credentials needed on the client side
+        const shouldShowLoader = !data;
+
+        try {
+            if (shouldShowLoader) {
+                setLoading(true);
+            }
+
+            const res = await fetch('/api/positions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
 
             const json = await res.json();
             if (!res.ok) {
@@ -470,39 +501,30 @@ export default function TradingZone() {
             }
 
             setData(json);
-            setCountdown(REFRESH_INTERVAL / 1000);
-
-            const chainJson = await chainRes.json().catch(() => null);
-            if (chainRes.ok && chainJson?.strikes) {
-                setOptionChain(chainJson as OptionChainResponse);
-                setOptionChainWarning(chainJson?.quoteError || null);
-            } else {
-                setOptionChain(null);
-                setOptionChainWarning(
-                    chainJson?.error || 'Live option chain unavailable. Position diagnostics use position feed only.'
-                );
-            }
+            setError(null);
+            setLastPositionsUpdated(json?.timestamp ? new Date(json.timestamp) : new Date());
         } catch (err: any) {
             setError(err.message || 'Failed to fetch positions');
         } finally {
-            setLoading(false);
+            if (shouldShowLoader) {
+                setLoading(false);
+            }
         }
-    }, [credentials]);
+    }, [data]);
 
     useEffect(() => {
         if (!isConfigured) return;
         fetchPositions();
+        fetchOptionChain();
 
-        const timer = setInterval(fetchPositions, REFRESH_INTERVAL);
-        const countdownTimer = setInterval(() => {
-            setCountdown(prev => (prev > 0 ? prev - 1 : REFRESH_INTERVAL / 1000));
-        }, 1000);
+        const positionTimer = setInterval(fetchPositions, POSITION_REFRESH_INTERVAL_MS);
+        const priceTimer = setInterval(fetchOptionChain, PRICE_REFRESH_INTERVAL_MS);
 
         return () => {
-            clearInterval(timer);
-            clearInterval(countdownTimer);
+            clearInterval(positionTimer);
+            clearInterval(priceTimer);
         };
-    }, [fetchPositions, isConfigured]);
+    }, [fetchOptionChain, fetchPositions, isConfigured]);
 
     if (isProcessingLogin) {
         return (
@@ -682,14 +704,16 @@ export default function TradingZone() {
         : futureChange >= 0
             ? 'text-emerald-400'
             : 'text-red-400';
+    const positionsUpdatedLabel = formatLiveTimestamp(lastPositionsUpdated);
+    const pricesUpdatedLabel = formatLiveTimestamp(lastPriceUpdated);
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-100 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950 flex flex-col uppercase-none">
             <Navbar />
-            <div className="p-6">
-                <div className="max-w-7xl mx-auto space-y-6">
+            <div className="p-4 md:p-6">
+                <div className="max-w-7xl mx-auto space-y-6 min-w-0">
                     <div className="bg-gradient-to-br from-white to-zinc-100 dark:from-zinc-900 dark:to-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-2xl">
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                             <div className="flex items-center gap-3">
                                 <div className="p-3 bg-violet-500/10 rounded-xl border border-violet-500/30">
                                     <Activity className="w-6 h-6 text-violet-400" />
@@ -699,18 +723,20 @@ export default function TradingZone() {
                                     <p className="text-sm text-zinc-500">Position Monitor and Adjustment Advisor</p>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-4">
-                                <div className="text-right">
-                                    <div className="text-xs text-zinc-500 font-bold">Next Refresh</div>
-                                    <div className="text-sm font-mono text-zinc-700 dark:text-zinc-400 flex items-center gap-1">
-                                        <Clock className="w-3 h-3" />
-                                        {Math.floor(countdown / 60)}:{String(countdown % 60).padStart(2, '0')}
+                            <div className="w-full md:w-auto flex items-center justify-between md:justify-end gap-4">
+                                <div className="text-right space-y-1">
+                                    <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-500 text-[10px] font-black uppercase tracking-wider">
+                                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                                        Live Auto Refresh
+                                    </div>
+                                    <div className="text-[11px] text-zinc-500 font-semibold">
+                                        Prices (5s): <span className="font-mono text-zinc-700 dark:text-zinc-400">{pricesUpdatedLabel}</span>
+                                    </div>
+                                    <div className="text-[11px] text-zinc-500 font-semibold">
+                                        Positions (15s): <span className="font-mono text-zinc-700 dark:text-zinc-400">{positionsUpdatedLabel}</span>
                                     </div>
                                 </div>
-                                <button onClick={fetchPositions} disabled={loading} className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition disabled:opacity-50">
-                                    <RefreshCw className={`w-4 h-4 text-zinc-700 dark:text-zinc-400 ${loading ? 'animate-spin' : ''}`} />
-                                </button>
-                                <button onClick={() => setIsConfigured(false)} className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition">
+                                <button onClick={() => setIsConfigured(false)} className="inline-flex items-center justify-center min-h-11 min-w-11 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition">
                                     <Settings className="w-4 h-4 text-zinc-700 dark:text-zinc-400" />
                                 </button>
                             </div>
@@ -735,7 +761,7 @@ export default function TradingZone() {
                                         value={data.marketCondition.trend}
                                         valueClass={
                                             data.marketCondition.trend === 'BULLISH' ? 'text-emerald-400' :
-                                            data.marketCondition.trend === 'BEARISH' ? 'text-red-400' : 'text-zinc-700 dark:text-zinc-400'
+                                                data.marketCondition.trend === 'BEARISH' ? 'text-red-400' : 'text-zinc-700 dark:text-zinc-400'
                                         }
                                     />
                                     <StatCard
@@ -840,7 +866,7 @@ export default function TradingZone() {
                                 <div className="inline-flex rounded-lg border border-zinc-300 dark:border-zinc-700 overflow-hidden">
                                     <button
                                         onClick={() => setPositionView('COMPACT')}
-                                        className={`px-3 py-1.5 text-xs font-bold transition ${positionView === 'COMPACT'
+                                        className={`min-h-11 px-3 py-1.5 text-xs font-bold transition ${positionView === 'COMPACT'
                                             ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
                                             : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
                                             }`}
@@ -849,7 +875,7 @@ export default function TradingZone() {
                                     </button>
                                     <button
                                         onClick={() => setPositionView('DETAILED')}
-                                        className={`px-3 py-1.5 text-xs font-bold transition ${positionView === 'DETAILED'
+                                        className={`min-h-11 px-3 py-1.5 text-xs font-bold transition ${positionView === 'DETAILED'
                                             ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
                                             : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
                                             }`}
@@ -863,11 +889,11 @@ export default function TradingZone() {
                                 {data.positions.map((position, idx) => {
                                     const positionKey = `${normalizeTradingSymbol(position.symbol)}-${idx}`;
                                     return (
-                                    <PositionCard
-                                        key={positionKey}
-                                        position={position}
-                                        compact={positionView === 'COMPACT'}
-                                    />
+                                        <PositionCard
+                                            key={positionKey}
+                                            position={position}
+                                            compact={positionView === 'COMPACT'}
+                                        />
                                     );
                                 })}
                             </div>
@@ -946,7 +972,49 @@ function OptionChainPanel({ chain }: { chain: OptionChainResponse }) {
                 </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="space-y-3 md:hidden">
+                {chain.strikes.map((row) => {
+                    const isAtm = atmStrike != null && Math.abs(row.strikePrice - atmStrike) < 1e-6;
+                    return (
+                        <div
+                            key={`mobile-${row.strikePrice}`}
+                            className={`rounded-lg border p-3 ${isAtm
+                                ? 'border-amber-500/30 bg-amber-500/10'
+                                : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40'
+                                }`}
+                        >
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="text-sm font-black text-zinc-900 dark:text-zinc-100">
+                                    Strike {row.strikePrice.toFixed(2)}
+                                </div>
+                                {isAtm && (
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500 text-[10px] font-black">
+                                        ATM
+                                    </span>
+                                )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 text-[11px]">
+                                <div className="space-y-1">
+                                    <div className="font-black text-cyan-600 dark:text-cyan-300">CE</div>
+                                    <div className="text-zinc-600 dark:text-zinc-300">Bid: {formatCompact(row.ce?.bestBidPrice)}</div>
+                                    <div className="text-zinc-600 dark:text-zinc-300">Ask: {formatCompact(row.ce?.bestAskPrice)}</div>
+                                    <div className="text-zinc-600 dark:text-zinc-300">OI: {formatInteger(row.ce?.oi)}</div>
+                                    <div className="text-zinc-600 dark:text-zinc-300">{formatGreeks(row.ce?.delta, row.ce?.theta)}</div>
+                                </div>
+                                <div className="space-y-1">
+                                    <div className="font-black text-rose-600 dark:text-rose-300">PE</div>
+                                    <div className="text-zinc-600 dark:text-zinc-300">Bid: {formatCompact(row.pe?.bestBidPrice)}</div>
+                                    <div className="text-zinc-600 dark:text-zinc-300">Ask: {formatCompact(row.pe?.bestAskPrice)}</div>
+                                    <div className="text-zinc-600 dark:text-zinc-300">OI: {formatInteger(row.pe?.oi)}</div>
+                                    <div className="text-zinc-600 dark:text-zinc-300">{formatGreeks(row.pe?.delta, row.pe?.theta)}</div>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            <div className="hidden md:block overflow-x-auto">
                 <table className="min-w-full text-xs">
                     <thead>
                         <tr className="text-zinc-700 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800">
@@ -965,27 +1033,27 @@ function OptionChainPanel({ chain }: { chain: OptionChainResponse }) {
                         {chain.strikes.map((row) => {
                             const isAtm = atmStrike != null && Math.abs(row.strikePrice - atmStrike) < 1e-6;
                             return (
-                            <tr
-                                key={row.strikePrice}
-                                className={`border-b border-zinc-200 dark:border-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800/20 ${isAtm ? 'bg-amber-500/10 dark:bg-amber-500/10' : ''}`}
-                            >
-                                <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-100 font-bold">
-                                    {row.strikePrice.toFixed(2)}
-                                    {isAtm && (
-                                        <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500 text-[10px] font-black align-middle">
-                                            ATM
-                                        </span>
-                                    )}
-                                </td>
-                                <td className="py-2 px-2 text-right text-cyan-700 dark:text-cyan-300">{formatCompact(row.ce?.bestBidPrice)}</td>
-                                <td className="py-2 px-2 text-right text-cyan-700 dark:text-cyan-300">{formatCompact(row.ce?.bestAskPrice)}</td>
-                                <td className="py-2 px-2 text-right text-cyan-700 dark:text-cyan-300">{formatInteger(row.ce?.oi)}</td>
-                                <td className="py-2 px-2 text-right text-cyan-700 dark:text-cyan-300">{formatGreeks(row.ce?.delta, row.ce?.theta)}</td>
-                                <td className="py-2 px-2 text-right text-rose-700 dark:text-rose-300">{formatCompact(row.pe?.bestBidPrice)}</td>
-                                <td className="py-2 px-2 text-right text-rose-700 dark:text-rose-300">{formatCompact(row.pe?.bestAskPrice)}</td>
-                                <td className="py-2 px-2 text-right text-rose-700 dark:text-rose-300">{formatInteger(row.pe?.oi)}</td>
-                                <td className="py-2 pl-2 text-right text-rose-700 dark:text-rose-300">{formatGreeks(row.pe?.delta, row.pe?.theta)}</td>
-                            </tr>
+                                <tr
+                                    key={row.strikePrice}
+                                    className={`border-b border-zinc-200 dark:border-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800/20 ${isAtm ? 'bg-amber-500/10 dark:bg-amber-500/10' : ''}`}
+                                >
+                                    <td className="py-2 pr-3 text-zinc-900 dark:text-zinc-100 font-bold">
+                                        {row.strikePrice.toFixed(2)}
+                                        {isAtm && (
+                                            <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500 text-[10px] font-black align-middle">
+                                                ATM
+                                            </span>
+                                        )}
+                                    </td>
+                                    <td className="py-2 px-2 text-right text-cyan-700 dark:text-cyan-300">{formatCompact(row.ce?.bestBidPrice)}</td>
+                                    <td className="py-2 px-2 text-right text-cyan-700 dark:text-cyan-300">{formatCompact(row.ce?.bestAskPrice)}</td>
+                                    <td className="py-2 px-2 text-right text-cyan-700 dark:text-cyan-300">{formatInteger(row.ce?.oi)}</td>
+                                    <td className="py-2 px-2 text-right text-cyan-700 dark:text-cyan-300">{formatGreeks(row.ce?.delta, row.ce?.theta)}</td>
+                                    <td className="py-2 px-2 text-right text-rose-700 dark:text-rose-300">{formatCompact(row.pe?.bestBidPrice)}</td>
+                                    <td className="py-2 px-2 text-right text-rose-700 dark:text-rose-300">{formatCompact(row.pe?.bestAskPrice)}</td>
+                                    <td className="py-2 px-2 text-right text-rose-700 dark:text-rose-300">{formatInteger(row.pe?.oi)}</td>
+                                    <td className="py-2 pl-2 text-right text-rose-700 dark:text-rose-300">{formatGreeks(row.pe?.delta, row.pe?.theta)}</td>
+                                </tr>
                             );
                         })}
                     </tbody>
@@ -1182,3 +1250,4 @@ function RecommendationCard({ recommendation }: { recommendation: AdjustmentReco
         </div>
     );
 }
+

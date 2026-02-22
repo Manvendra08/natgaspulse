@@ -1,7 +1,14 @@
 // EIA API Client for Natural Gas Data
 
 const EIA_BASE_URL = 'https://api.eia.gov/v2';
-const API_KEY = process.env.EIA_API_KEY || '2gWOaADeVAIU5QNWXMScQ1CbjdULr4Eq1KdFung0';
+
+// EIA_API_KEY must be set in .env.local (server-side only, never NEXT_PUBLIC_).
+// Register free at https://www.eia.gov/opendata/register.php
+const API_KEY = process.env.EIA_API_KEY;
+if (!API_KEY) {
+    // Warn at module load time so it surfaces in server logs immediately.
+    console.warn('[eia] EIA_API_KEY is not set. Storage and price fetches will fail. Add it to .env.local.');
+}
 
 export interface StorageDataPoint {
     period: string;

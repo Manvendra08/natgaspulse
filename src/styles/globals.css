@@ -20,6 +20,10 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 /* Custom scrollbar for trading interface feel */
 ::-webkit-scrollbar {
   width: 8px;

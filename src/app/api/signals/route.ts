@@ -9,12 +9,13 @@ import {
 import { generateOptionsRecommendations } from '@/lib/utils/options-advisor';
 import { getOptionChainAnalysis } from '@/lib/utils/option-chain-provider';
 import { fetchRupeezyOptionChain } from '@/lib/utils/rupeezy-option-chain';
+import { fetchMoneycontrolMcxSnapshot } from '@/lib/utils/moneycontrol-mcx';
 import type { CandleData, Timeframe, SignalBotResponse } from '@/lib/types/signals';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-type PriceSource = 'Rupeezy Active Future' | 'MCX Official' | 'Derived (NYMEX * USDINR)';
+type PriceSource = 'Rupeezy Active Future' | 'Moneycontrol Structured' | 'MCX Official' | 'Derived (NYMEX * USDINR)';
 
 interface ActiveFutureSnapshot {
     symbol: string;
@@ -203,20 +204,23 @@ function injectLatestPrice(candles: CandleData[], livePrice: number | null): Can
 
 export async function GET() {
     try {
-        const [candles1H, candles1D, usdinr, activeSnapshot, officialMcxPrice] = await Promise.all([
-            fetchCandles('NG=F', '1h', '30d'),
-            fetchCandles('NG=F', '1d', '1y'),
+        const [candles1H, candles1D, candles1W, candles1M, usdinr, activeSnapshot, moneycontrolSnapshot, officialMcxPrice] = await Promise.all([
+            fetchCandles('NG=F', '1h', '60d'),
+            fetchCandles('NG=F', '1d', '2y'),
+            fetchCandles('NG=F', '1wk', '5y'),
+            fetchCandles('NG=F', '1mo', '10y'),
             fetchUsdInrRate(),
             fetchActiveFutureSnapshot(),
+            fetchMoneycontrolMcxSnapshot(),
             tryFetchOfficialMpxSnapshot()
         ]);
 
-        if (!candles1H.length || !candles1D.length) {
+        if (!candles1H.length || !candles1D.length || !candles1W.length || !candles1M.length) {
             throw new Error('Insufficient candle data to generate signal');
         }
 
         const lastNymex = candles1H[candles1H.length - 1].close;
-        const anchorPrice = activeSnapshot?.ltp ?? officialMcxPrice ?? null;
+        const anchorPrice = activeSnapshot?.ltp ?? moneycontrolSnapshot?.lastPrice ?? officialMcxPrice ?? null;
 
         let source: PriceSource = 'Derived (NYMEX * USDINR)';
         let premium = 24;
@@ -225,48 +229,82 @@ export async function GET() {
             const impliedPremium = anchorPrice - (lastNymex * usdinr);
             if (Number.isFinite(impliedPremium) && impliedPremium > -200 && impliedPremium < 300) {
                 premium = impliedPremium;
-                source = activeSnapshot ? 'Rupeezy Active Future' : 'MCX Official';
+                source = activeSnapshot
+                    ? 'Rupeezy Active Future'
+                    : moneycontrolSnapshot
+                        ? 'Moneycontrol Structured'
+                        : 'MCX Official';
             }
         }
 
         let mcx1H = convertToMcx(candles1H, usdinr, premium);
         let mcx1D = convertToMcx(candles1D, usdinr, premium);
+        let mcx1W = convertToMcx(candles1W, usdinr, premium);
+        let mcx1M = convertToMcx(candles1M, usdinr, premium);
 
         mcx1H = injectLatestPrice(mcx1H, anchorPrice);
         mcx1D = injectLatestPrice(mcx1D, anchorPrice);
+        mcx1W = injectLatestPrice(mcx1W, anchorPrice);
+        mcx1M = injectLatestPrice(mcx1M, anchorPrice);
 
         const mcx3H = aggregateTo3H(mcx1H);
+        const currentPrice = anchorPrice && Number.isFinite(anchorPrice)
+            ? anchorPrice
+            : mcx1H[mcx1H.length - 1].close;
         const previousClose = activeSnapshot?.previousClose
+            ?? moneycontrolSnapshot?.previousClose
             ?? (mcx1D.length > 1 ? mcx1D[mcx1D.length - 2].close : null);
 
-        const tfMap: [Timeframe, CandleData[]][] = [
-            ['1H', mcx1H],
-            ['3H', mcx3H],
-            ['1D', mcx1D]
+        const tfMap: Array<{ timeframe: Timeframe; candles: CandleData[]; periodOpen: number }> = [
+            {
+                timeframe: '1H',
+                candles: mcx1H,
+                periodOpen: mcx1H[mcx1H.length - 1]?.open || currentPrice
+            },
+            {
+                timeframe: '3H',
+                candles: mcx3H,
+                periodOpen: mcx3H[mcx3H.length - 1]?.open || currentPrice
+            },
+            {
+                timeframe: '1D',
+                candles: mcx1D,
+                periodOpen: mcx1D[mcx1D.length - 1]?.open || currentPrice
+            },
+            {
+                timeframe: '1W',
+                candles: mcx1W,
+                periodOpen: mcx1W[mcx1W.length - 1]?.open || currentPrice
+            },
+            {
+                timeframe: '1M',
+                candles: mcx1M,
+                periodOpen: mcx1M[mcx1M.length - 1]?.open || currentPrice
+            }
         ];
 
         const timeframeSignals = tfMap
-            .map(([tf, candles]) => analyzeTimeframe(tf, candles, previousClose ?? undefined))
+            .map(({ timeframe, candles, periodOpen }) => analyzeTimeframe(timeframe, candles, {
+                periodOpen,
+                currentClose: currentPrice
+            }))
             .filter((tf) => tf.candleCount > 0);
 
         if (!timeframeSignals.length) {
             throw new Error('Timeframe analysis unavailable');
         }
 
-        const currentPrice = anchorPrice && Number.isFinite(anchorPrice)
-            ? anchorPrice
-            : timeframeSignals.find((t) => t.timeframe === '1D')?.lastPrice ?? timeframeSignals[0].lastPrice;
         const computedLiveChange = previousClose != null ? currentPrice - previousClose : null;
         const computedLiveChangePercent = previousClose != null && previousClose > 0
             ? ((currentPrice - previousClose) / previousClose) * 100
             : null;
-        const liveChange = computedLiveChange ?? activeSnapshot?.change ?? undefined;
-        const liveChangePercent = computedLiveChangePercent ?? activeSnapshot?.changePercent ?? undefined;
+        const liveChange = computedLiveChange ?? activeSnapshot?.change ?? moneycontrolSnapshot?.change ?? undefined;
+        const liveChangePercent = computedLiveChangePercent ?? activeSnapshot?.changePercent ?? moneycontrolSnapshot?.changePercent ?? undefined;
         const { signal, score, confidence } = computeOverallSignal(timeframeSignals, liveChangePercent);
 
         const dailyTF = timeframeSignals.find((t) => t.timeframe === '1D') || timeframeSignals[0];
         const marketCondition = determineMarketCondition(dailyTF, liveChangePercent);
-        const recommendedTfs: Timeframe[] = ['1H', '3H', '1D'];
+        const recommendedTfs: Timeframe[] = ['1H', '3H', '1D', '1W', '1M'];
         const futuresSetups = recommendedTfs
             .map((tf) => timeframeSignals.find((signalTf) => signalTf.timeframe === tf))
             .filter((tf): tf is typeof timeframeSignals[number] => Boolean(tf))
@@ -296,7 +334,7 @@ export async function GET() {
         const response: SignalBotResponse = {
             timestamp: new Date().toISOString(),
             currentPrice,
-            activeContract: activeSnapshot?.symbol,
+            activeContract: activeSnapshot?.symbol || moneycontrolSnapshot?.contractMonth || 'NATURALGAS',
             previousClose: previousClose ?? undefined,
             overallSignal: signal,
             overallConfidence: confidence,
@@ -310,6 +348,13 @@ export async function GET() {
             dataSource: source,
             liveChange,
             liveChangePercent,
+            marketStats: {
+                openInterest: moneycontrolSnapshot?.openInterest,
+                volume: moneycontrolSnapshot?.volume,
+                bid: moneycontrolSnapshot?.bid,
+                ask: moneycontrolSnapshot?.ask,
+                asOf: moneycontrolSnapshot?.asOf
+            },
             optionChainAnalysis
         };
 

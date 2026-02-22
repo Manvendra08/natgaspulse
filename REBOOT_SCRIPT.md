@@ -1,154 +1,131 @@
-# REBOOT SCRIPT - Natural Gas Dashboard
-Updated: 2026-02-18
-Workspace: `C:\Users\manve\Downloads\Natural Gas Dashboard`
+# REBOOT_SCRIPT.md
 
-Use this file as the single source of truth to resume the session in a new chat.
+## Project
+- Name: Natural Gas Dashboard
+- Workspace: `C:\Users\manve\Downloads\Natural Gas Dashboard`
+- Last Updated: 2026-02-19
 
-## 1) Where We Are (High-Level)
-- Project is a Next.js dashboard for MCX Natural Gas with trading zone, signal bot, option chain, and auth paywall.
-- Large batch of changes is in progress and mostly uncommitted.
-- Build/typecheck had been passing after latest auth + routing patches, but runtime behavior still needs validation on key pages.
+## Tech Stack
+- Framework: Next.js 16 (App Router), React 19, TypeScript
+- Styling: Tailwind CSS
+- Charts: `lightweight-charts`, `recharts`
+- Auth/DB: Supabase (`@supabase/supabase-js`, `@supabase/ssr`)
+- Icons/UI: `lucide-react`
+- Runtime APIs: Next.js route handlers under `src/app/api/*`
 
-## 2) Key Decisions Taken
-1. Option-chain source strategy shifted away from Zerodha quote API (403 permission issues) toward public/live alternatives (Rupeezy path currently integrated in code).
-2. Signal analysis must anchor to active MCX Natural Gas future, not stale/reference spot values.
-3. Percentage move should be calculated from previous day close for consistency.
-4. Timeframes prioritized for actionable setup: `1H`, `3H`, `1D`.
-5. Chart scroll trap fix: disable wheel-zoom behavior so page scroll is not hijacked by embedded charts.
-6. Auth/paywall model: home is public; premium routes require authentication.
-7. Trading zone UI was compacted and position cards simplified per user instructions.
-8. Lot-size logic has been revised multiple times during discussion (125 -> 1250 requirement raised later); all Greeks/PnL formulas must consistently use current configured lot size.
+## Database Schema Summary
+- Source: `supabase/migrations/001_user_profiles.sql`
+- Main table: `public.user_profiles`
+- Key columns:
+  - `id` (uuid, pk)
+  - `user_id` (uuid, unique, fk -> `auth.users(id)`, cascade delete)
+  - `email`, `full_name`, `subscription_status`
+  - `zerodha_credentials` (encrypted blob)
+  - `zerodha_access_token` (encrypted)
+  - `other_api_keys` (jsonb encrypted values)
+  - `created_at`, `updated_at`
+- Security:
+  - RLS enabled
+  - Per-user select/insert/update/delete policies (`auth.uid() = user_id`)
+- Triggers/functions:
+  - `set_updated_at()` + update trigger
+  - `handle_new_user()` + `auth.users` insert trigger to auto-create profile row
 
-## 3) Most Important Implemented Changes
-### A) Signal engine + API
-- `src/app/api/signals/route.ts`
-- `src/lib/utils/signal-engine.ts`
-- `src/lib/types/signals.ts`
-- `src/components/widgets/TradingSignalBot.tsx`
+## Environment Variables
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `APP_ENCRYPTION_KEY`
+- `EIA_API_KEY`
 
-What changed:
-- Added active snapshot + previous close handling.
-- Computes `liveChange` and `liveChangePercent` from previous close when available.
-- Produces multi-timeframe futures setups (`futuresSetups`) and keeps backward-compatible `futuresSetup`.
-- Market condition and scoring thresholds were tightened.
+## Run Commands
+- Install: `npm install`
+- Dev server: `npm run dev`
+- Build: `npm run build`
+- Start prod server: `npm run start`
+- Lint: `npm run lint`
+- Type check: `npx tsc --noEmit`
 
-### B) MCX public data alignment
-- `src/app/api/mcx/public/route.ts`
-- `src/lib/utils/rupeezy-option-chain.ts`
-- `src/components/mcx/MCXPublicDataPanel.tsx`
+## Completed Features
+- Auth-aware navbar and protected premium-route flow.
+- Dashboard modules: storage, weather, analytics, alerts, forecasting, charts.
+- Signals page with multi-timeframe signal bot + futures/options advisory.
+- Trading Zone with Zerodha profile-backed session flow + positions + option chain diagnostics.
+- Nat Gas MCX page with public feed, advanced charting, spread/seasonality tooling.
 
-What changed:
-- Active-month future reference integrated into MCX route.
-- Source/provider labeling updated in UI.
+### Completed Today (2026-02-19)
+- Premium block moved from dashboard to home and placed above plans section.
+- Premium cards no longer show per-card unlock CTA.
+- Added single `Unlock with Pro →` button at section bottom with smooth scroll to plans.
+- MCX expiry calendar now emits and displays two rows per month:
+  - `FUT` expiry row
+  - `OPT` expiry row
+- Trading Zone refresh logic replaced:
+  - Prices auto-refresh every 5s
+  - Positions auto-refresh every 15s
+  - Live pulsing indicator + per-stream last-updated timestamps
+  - Manual refresh button removed
+- Futures neutral/no-signal visuals updated to gray hyphen (`–`, `#888`, weight `400`).
+- Market Analytics widget switched from NYMEX parity view to MCX futures month view:
+  - `MCX Active Month`
+  - `MCX Next Month`
+  - Data path now sourced from `/api/mcx/public` MCX proxy route fields.
+- X Social Stream now shows per-post timestamp below each post in IST format:
+  - `DD MMM YYYY, HH:MM IST`
+  - UTC ISO inputs converted to `Asia/Kolkata`.
+- Mobile responsiveness upgrades:
+  - Shared navbar replaced with hamburger + full-screen mobile drawer
+  - Home top-nav now has hamburger + full-screen mobile drawer
+  - Increased touch target sizing on key navigation/CTA controls
+  - Trading-zone option-chain table has mobile card view fallback
+  - Signal heatmap has mobile card view fallback
+  - MCX settlement/OI table has mobile card view fallback
+  - Global smooth scroll enabled
 
-### C) Chart scroll/zoom behavior
-- `src/components/mcx/MCXAdvancedChart.tsx`
-- `src/components/widgets/TechnicalChartWidget.tsx`
+## Pending Tasks
+- Run full lint/type/build validation and resolve any regressions.
+- Normalize legacy text encoding artifacts (`â€¢`, `â€”`, `â‚¹`) across UI files.
+- Review all remaining pages for strict 44px touch targets on every interactive control.
+- Add automated tests for:
+  - Trading-zone refresh cadence behavior
+  - MCX active/next month fallback logic
+  - IST timestamp formatting in social stream
+- Consider websocket migration for Trading Zone if broker/websocket source is available.
 
-What changed:
-- `mouseWheel` scaling disabled.
-- container `touchAction: 'pan-y'` added.
+## Known Bugs / Risks
+- Multiple files still contain mojibake character artifacts from prior encoding issues.
+- Trading-zone polling is interval-based and may overlap during slow API responses.
+- MCX next-month quote depends on unofficial data availability; may be null and show fallback.
+- Some legacy components may still be tuned for desktop-first spacing.
 
-### D) Auth + premium routing
-- `middleware.ts` (root)
-- `src/middleware.ts` (also present)
-- `src/components/layout/Navbar.tsx`
-- `src/app/access/page.tsx`
-- `src/app/login/page.tsx`
-- `src/app/signup/page.tsx`
+## Last Session Summary
+- Session date: 2026-02-19
+- Core objective: multi-part UX/data refresh across home/dashboard/trading/mcx/social/mobile + reboot doc regeneration.
+- Major files touched:
+  - `src/app/page.tsx`
+  - `src/app/dashboard/page.tsx`
+  - `src/components/home/PremiumFeaturesSection.tsx`
+  - `src/app/trading-zone/page.tsx`
+  - `src/components/widgets/TradingSignalBot.tsx`
+  - `src/components/widgets/MarketOverviewWidget.tsx`
+  - `src/app/api/mcx/public/route.ts`
+  - `src/lib/types/mcx.ts`
+  - `src/components/mcx/MCXPublicDataPanel.tsx`
+  - `src/components/widgets/AlertsWidget.tsx`
+  - `src/components/layout/Navbar.tsx`
+  - `src/components/home/HomeTopNav.tsx`
+  - `src/components/home/HomeAuthActions.tsx`
+  - `src/styles/globals.css`
+  - `REBOOT_SCRIPT.md`
 
-What changed:
-- Middleware-based route protection and auth-page redirects.
-- Navbar now conditionally shows premium/public links by auth state.
-- Login/signup/access query handling reworked to avoid CSR search-param issues.
-
-## 4) Critical Code Snippets
-### Active previous-close based move
-```ts
-const computedLiveChange = previousClose != null ? currentPrice - previousClose : null;
-const computedLiveChangePercent = previousClose != null && previousClose > 0
-  ? ((currentPrice - previousClose) / previousClose) * 100
-  : null;
-```
-
-### Overall signal uses live move context
-```ts
-const { signal, score, confidence } = computeOverallSignal(timeframeSignals, liveChangePercent);
-const marketCondition = determineMarketCondition(dailyTF, liveChangePercent);
-```
-
-### Multi-timeframe futures setup output
-```ts
-const futuresSetups = recommendedTfs
-  .map((tf) => generateFuturesSetup(tf, timeframeSignals[tf], currentPrice))
-  .filter(Boolean);
-```
-
-### Chart wheel hijack prevention
-```ts
-handleScale: { mouseWheel: false },
-handleScroll: { mouseWheel: false }
-```
-
-### Unauth redirect for premium pages (root middleware)
-```ts
-if (!user) {
-  const redirectUrl = request.nextUrl.clone();
-  redirectUrl.pathname = '/';
-  redirectUrl.searchParams.set('redirect', pathname);
-  return NextResponse.redirect(redirectUrl);
-}
-```
-
-### Auth page redirect when already logged in
-```ts
-if (user && (pathname.startsWith('/login') || pathname.startsWith('/signup'))) {
-  const redirectUrl = request.nextUrl.clone();
-  redirectUrl.pathname = '/dashboard';
-  redirectUrl.search = '';
-  return NextResponse.redirect(redirectUrl);
-}
-```
-
-## 5) Current Git Snapshot (Important)
-`git status --short` shows many modified/untracked files, including:
-- Modified: `src/app/api/signals/route.ts`, `src/lib/utils/signal-engine.ts`, `src/app/api/mcx/public/route.ts`, `src/components/widgets/TradingSignalBot.tsx`, `src/components/layout/Navbar.tsx`, docs, and more.
-- Untracked: `middleware.ts`, `src/middleware.ts`, full auth folders (`src/app/login`, `signup`, `profile`, etc.), `src/lib/supabase`, `src/lib/utils/encryption.ts`, `supabase/`, `PRD.md`, `progress.txt`.
-
-## 6) Outstanding Tasks (Priority)
-1. Resolve middleware duplication conflict:
-- Both `middleware.ts` and `src/middleware.ts` exist with different behavior (`/` vs `/access` redirect policy).
-- Keep one canonical middleware and delete/merge the other.
-
-2. Verify premium page gating end-to-end:
-- Re-test logged-out access to `/dashboard`, `/signals`, `/nat-gas-mcx`, `/forecaster`, `/trading-zone`, `/profile`.
-- Confirm navbar never shows premium links when logged out.
-
-3. Re-validate timeframe and futures setup logic against live active contract:
-- Ensure trend bias reacts correctly on large down days.
-- Recheck SL/target width calibration for `1H`, `3H`, `1D`.
-
-4. Confirm lot-size consistency for Greeks/PnL:
-- Ensure all formulas (delta/theta/decay/futures delta) use intended Natural Gas lot size consistently across APIs + UI.
-
-5. Final cleanup and commit plan:
-- Decide whether to keep `PRD.md`, `progress.txt`, and duplicate middleware file.
-- Create staged commits by concern (auth, signal engine, chart behavior, docs).
-
-## 7) Paste-Ready Prompt For New Chat
+## Quick Resume Prompt
 ```text
-Resume from: C:\Users\manve\Downloads\Natural Gas Dashboard
-Read REBOOT_SCRIPT.md first, then continue from current working tree without discarding changes.
-
-Current priorities:
-1) Fix and unify middleware routing (both middleware.ts and src/middleware.ts currently exist with different redirect behavior).
-2) Validate premium-page auth gating and navbar visibility behavior end-to-end.
-3) Recheck Signal page logic on active MCX Natural Gas futures, with previous-close based % change and tighter 1H/3H/1D futures setups.
-4) Verify lot-size consistency in Greeks/PnL formulas across trading-zone and option-chain logic.
-5) Prepare clean, minimal commit sequence and run validation (`npx tsc --noEmit --pretty false`, then app smoke tests).
-
-Constraints:
-- Do not reset/revert unrelated files.
-- Keep existing functionality unless explicitly replacing it.
-- Document any behavior changes in README/summary docs.
+Open C:\Users\manve\Downloads\Natural Gas Dashboard.
+Read REBOOT_SCRIPT.md first.
+Continue from uncommitted working tree.
+Priority:
+1) run lint + typecheck + build and fix breakages,
+2) clean encoding artifacts,
+3) verify mobile behavior end-to-end,
+4) add regression tests for trading-zone refresh + MCX month source + IST timestamp formatting.
+Do not revert unrelated local changes.
 ```

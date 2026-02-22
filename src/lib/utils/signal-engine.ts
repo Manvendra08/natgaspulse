@@ -386,15 +386,23 @@ const TIMEFRAME_WEIGHTS: Record<Timeframe, number> = {
 export function analyzeTimeframe(
     timeframe: Timeframe,
     candles: CandleData[],
-    previousDayClose?: number
+    options?: {
+        periodOpen?: number;
+        currentClose?: number;
+    }
 ): TimeframeSignal {
     const lastCandle = candles[candles.length - 1];
     const prevCandle = candles.length > 1 ? candles[candles.length - 2] : lastCandle;
-    const lastPrice = lastCandle?.close || 0;
+    const candleClose = lastCandle?.close || 0;
+    const lastPrice = Number.isFinite(options?.currentClose as number) && (options?.currentClose as number) > 0
+        ? (options?.currentClose as number)
+        : candleClose;
+    const defaultPeriodOpen = lastCandle?.open || prevCandle?.close || lastPrice;
+    const periodOpen = Number.isFinite(options?.periodOpen as number) && (options?.periodOpen as number) > 0
+        ? (options?.periodOpen as number)
+        : defaultPeriodOpen;
     const intervalClose = prevCandle?.close || lastPrice;
-    const referenceClose = Number.isFinite(previousDayClose as number) && (previousDayClose as number) > 0
-        ? (previousDayClose as number)
-        : intervalClose;
+    const referenceClose = periodOpen;
 
     const priceChange = lastPrice - referenceClose;
     const priceChangePercent = referenceClose > 0 ? (priceChange / referenceClose) * 100 : 0;
@@ -412,6 +420,7 @@ export function analyzeTimeframe(
         indicators,
         signals,
         lastPrice,
+        periodOpen,
         referenceClose,
         priceChange,
         priceChangePercent,
@@ -556,7 +565,7 @@ export function determineMarketCondition(
     return 'RANGING';
 }
 
-/** Generate futures trade setup */
+/** Generate futures trade setup with pro trader logic */
 export function generateFuturesSetup(
     dailySignal: TimeframeSignal,
     overallDirection: SignalDirection
@@ -567,30 +576,114 @@ export function generateFuturesSetup(
     }
 
     const profile = resolveSetupProfile(dailySignal.timeframe);
-    const resolvedDirection = resolveDirectionalLean(dailySignal, overallDirection);
-    const neutralFramework = overallDirection === 'HOLD';
-    const atr = dailySignal.indicators.atr || price * profile.fallbackAtrPercent;
     const ind = dailySignal.indicators;
+    const atr = ind.atr || price * profile.fallbackAtrPercent;
+    const adx = ind.adx;
+    const ema20 = ind.ema20;
+    const ema50 = ind.ema50;
+    const plusDI = ind.plusDI;
+    const minusDI = ind.minusDI;
+
+    // ── No-Trade Zone Detection ─────────────────────────────────────────────
+    // ADX < 20 → ranging/choppy market, no clear trend
+    if (adx !== null && adx < 20) {
+        return {
+            timeframe: dailySignal.timeframe,
+            direction: 'HOLD',
+            entry: round4(price),
+            stopLoss: round4(price - atr),
+            target1: round4(price + atr),
+            target2: round4(price + 2 * atr),
+            riskRewardRatio: 0,
+            atrValue: round4(atr),
+            rationale: `NO-TRADE: ADX(${adx.toFixed(1)}) < 20 — market is ranging. Wait for trend confirmation.`
+        };
+    }
+
+    // Price between EMAs → chop zone, no clear direction
+    if (ema20 !== null && ema50 !== null) {
+        const betweenEMAs = price > Math.min(ema20, ema50) && price < Math.max(ema20, ema50);
+        if (betweenEMAs && Math.abs(ema20 - ema50) < atr * 0.5) {
+            return {
+                timeframe: dailySignal.timeframe,
+                direction: 'HOLD',
+                entry: round4(price),
+                stopLoss: round4(price - atr * 1.5),
+                target1: round4(price + atr * 1.5),
+                target2: round4(price + atr * 3),
+                riskRewardRatio: 0,
+                atrValue: round4(atr),
+                rationale: `NO-TRADE: Price between EMA20(${ema20.toFixed(2)}) and EMA50(${ema50.toFixed(2)}) — chop zone. Wait for breakout.`
+            };
+        }
+    }
+
+    // ── Trend Detection ─────────────────────────────────────────────────────
+    let trendBias: SignalDirection = 'HOLD';
+    let trendStrength = 0;
+
+    // EMA trend: EMA20 > EMA50 + price > EMA20 → bullish
+    if (ema20 !== null && ema50 !== null) {
+        if (ema20 > ema50 && price > ema20) {
+            trendBias = 'BUY';
+            trendStrength += 15;
+        } else if (ema20 < ema50 && price < ema20) {
+            trendBias = 'SELL';
+            trendStrength += 15;
+        }
+    }
+
+    // ADX trend strength: ADX > 25 confirms trend
+    if (adx !== null && adx >= 25) {
+        trendStrength += 10;
+    }
+
+    // DI spread: +DI > -DI → bullish pressure
+    if (plusDI !== null && minusDI !== null) {
+        const diSpread = plusDI - minusDI;
+        if (diSpread >= 5) {
+            trendBias = 'BUY';
+            trendStrength += Math.min(diSpread, 15);
+        } else if (diSpread <= -5) {
+            trendBias = 'SELL';
+            trendStrength += Math.min(Math.abs(diSpread), 15);
+        }
+    }
+
+    // Override with overall direction if strong enough
+    const resolvedDirection = overallDirection !== 'HOLD' ? overallDirection : trendBias;
+
+    if (resolvedDirection === 'HOLD') {
+        return {
+            timeframe: dailySignal.timeframe,
+            direction: 'HOLD',
+            entry: round4(price),
+            stopLoss: round4(price - atr * 1.5),
+            target1: round4(price + atr * 1.5),
+            target2: round4(price + atr * 3),
+            riskRewardRatio: 0,
+            atrValue: round4(atr),
+            rationale: `NEUTRAL: No clear directional bias. ADX=${adx?.toFixed(1) ?? 'N/A'}, EMA20=${ema20?.toFixed(2) ?? 'N/A'}, EMA50=${ema50?.toFixed(2) ?? 'N/A'}. Wait for setup.`
+        };
+    }
+
+    // ── Entry Zone Calculation (ATR-based channel) ───────────────────────────
     const slBuffer = Math.max(atr * profile.slBufferAtr, price * profile.slBufferPricePercent);
+    const neutralFramework = overallDirection === 'HOLD';
     const rationalePrefix = neutralFramework
-        ? 'Neutral aggregate score. Setup uses DI/EMA directional lean.'
-        : '';
+        ? `Directional lean from DI/EMA. ADX=${adx?.toFixed(1) ?? 'N/A'}.`
+        : `Trend confirmed. ADX=${adx?.toFixed(1) ?? 'N/A'}, strength=${trendStrength}.`;
 
     if (resolvedDirection === 'BUY') {
+        // Entry: current price or slight pullback to EMA20
         const entry = price;
-        const stopFallback = price - profile.stopAtr * atr;
+        // SL: 1.5× ATR below entry, or below pivot S1
+        const stopFallback = price - 1.5 * atr;
         const pivotStop = ind.pivotS1 !== null ? ind.pivotS1 - slBuffer : stopFallback;
         const sl = Math.max(stopFallback, pivotStop);
-
-        const minTarget1 = price + profile.target1MinAtr * atr;
-        const capTarget1 = price + profile.target1Atr * atr;
-        const rawTarget1 = ind.pivotR1 ?? capTarget1;
-        const target1 = clamp(rawTarget1, minTarget1, capTarget1);
-
-        const minTarget2 = target1 + profile.target2StepAtr * atr;
-        const capTarget2 = price + profile.target2Atr * atr;
-        const rawTarget2 = ind.pivotR2 ?? capTarget2;
-        const target2 = clamp(rawTarget2, minTarget2, capTarget2);
+        // Targets: 3× ATR (T1), 5× ATR (T2) for 1:2 RR minimum
+        const target1 = price + 3 * atr;
+        const target2 = price + 5 * atr;
         const risk = entry - sl;
         const rr = risk > 0 ? (target1 - entry) / risk : 0;
 
@@ -603,25 +696,17 @@ export function generateFuturesSetup(
             target2: round4(target2),
             riskRewardRatio: Math.round(rr * 100) / 100,
             atrValue: round4(atr),
-            rationale: `${rationalePrefix} ${buildFuturesRationale(dailySignal, 'BUY')}`.trim()
+            rationale: `${rationalePrefix} LONG: Entry at ₹${price.toFixed(2)}, SL at ₹${sl.toFixed(2)} (1.5×ATR). T1=₹${target1.toFixed(2)}, T2=₹${target2.toFixed(2)}. ${buildFuturesRationale(dailySignal, 'BUY')}`
         };
     }
 
     if (resolvedDirection === 'SELL') {
         const entry = price;
-        const stopFallback = price + profile.stopAtr * atr;
+        const stopFallback = price + 1.5 * atr;
         const pivotStop = ind.pivotR1 !== null ? ind.pivotR1 + slBuffer : stopFallback;
         const sl = Math.min(stopFallback, pivotStop);
-
-        const maxTarget1 = price - profile.target1MinAtr * atr;
-        const floorTarget1 = price - profile.target1Atr * atr;
-        const rawTarget1 = ind.pivotS1 ?? floorTarget1;
-        const target1 = clamp(rawTarget1, floorTarget1, maxTarget1);
-
-        const maxTarget2 = target1 - profile.target2StepAtr * atr;
-        const floorTarget2 = price - profile.target2Atr * atr;
-        const rawTarget2 = ind.pivotS2 ?? floorTarget2;
-        const target2 = clamp(rawTarget2, floorTarget2, maxTarget2);
+        const target1 = price - 3 * atr;
+        const target2 = price - 5 * atr;
         const risk = sl - entry;
         const rr = risk > 0 ? (entry - target1) / risk : 0;
 
@@ -634,7 +719,7 @@ export function generateFuturesSetup(
             target2: round4(target2),
             riskRewardRatio: Math.round(rr * 100) / 100,
             atrValue: round4(atr),
-            rationale: `${rationalePrefix} ${buildFuturesRationale(dailySignal, 'SELL')}`.trim()
+            rationale: `${rationalePrefix} SHORT: Entry at ₹${price.toFixed(2)}, SL at ₹${sl.toFixed(2)} (1.5×ATR). T1=₹${target1.toFixed(2)}, T2=₹${target2.toFixed(2)}. ${buildFuturesRationale(dailySignal, 'SELL')}`
         };
     }
 

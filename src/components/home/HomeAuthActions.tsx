@@ -39,10 +39,10 @@ export default function HomeAuthActions() {
 
     return (
         <div className="flex items-center gap-2 md:gap-2 md:justify-end">
-            <Link href="/login" className="px-3 py-1.5 rounded-lg bg-zinc-900 text-white text-xs font-black border border-zinc-800 hover:bg-zinc-800 transition">
+            <Link href="/login" className="inline-flex items-center min-h-11 px-4 rounded-lg bg-zinc-900 text-white text-sm font-black border border-zinc-800 hover:bg-zinc-800 transition">
                 Log In
             </Link>
-            <Link href="/signup" className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-black border border-emerald-500/30 hover:bg-emerald-500 transition">
+            <Link href="/signup" className="inline-flex items-center min-h-11 px-4 rounded-lg bg-emerald-600 text-white text-sm font-black border border-emerald-500/30 hover:bg-emerald-500 transition">
                 Sign Up
             </Link>
         </div>
